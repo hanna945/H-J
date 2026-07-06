@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>廣告帳本</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root {
+    --paper: #EDEFE3;
+    --paper-raised: #F5F6ED;
+    --ink: #1E2A28;
+    --ink-soft: #56635C;
+    --rule: #C7CBB4;
+    --blue: #2F4B7C;
+    --green: #3E6B4F;
+    --red: #A8362F;
+    --amber: #B8862E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: 'Inter', sans-serif; background: var(--paper); color: var(--ink);
+    padding: 32px 20px 64px;
+  }
+  .mal-shell { max-width: 920px; margin: 0 auto; }
+  .mal-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; border-bottom: 3px solid var(--ink); padding-bottom: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+  .mal-title-block { display: flex; align-items: center; gap: 12px; }
+  .mal-stamp { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--blue); color: var(--blue); display: flex; align-items: center; justify-content: center; transform: rotate(-8deg); flex-shrink: 0; font-size: 18px; }
+  .mal-title { font-family: 'Zilla Slab', serif; font-weight: 700; font-size: 28px; margin: 0; }
+  .mal-subtitle { font-size: 13px; color: var(--ink-soft); margin: 2px 0 0; }
+  .mal-btn { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 13.5px; border-radius: 3px; padding: 9px 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--ink); background: var(--paper-raised); color: var(--ink); }
+  .mal-btn:hover { box-shadow: 2px 3px 0 var(--rule); }
+  .mal-btn-primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .mal-btn-danger { background: transparent; border-color: var(--red); color: var(--red); }
+  .mal-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+  .mal-notice { background: #E4EBE0; border: 1px solid var(--green); color: var(--green); font-size: 13px; padding: 9px 14px; border-radius: 3px; margin-bottom: 16px; }
+  .mal-error { background: #F3E3E1; border: 1px solid var(--red); color: var(--red); font-size: 13px; padding: 9px 14px; border-radius: 3px; margin-bottom: 16px; }
+  .mal-empty { border: 1.5px dashed var(--rule); border-radius: 4px; padding: 56px 24px; text-align: center; background: var(--paper-raised); }
+  .mal-empty p { color: var(--ink-soft); font-size: 14px; max-width: 440px; margin: 10px auto 20px; line-height: 1.6; }
+  .mal-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 20px; }
+  .mal-tab { font-family: 'IBM Plex Mono', monospace; font-size: 13px; padding: 7px 14px 9px; border: 1.5px solid var(--rule); border-bottom: none; border-radius: 4px 4px 0 0; background: var(--paper-raised); color: var(--ink-soft); cursor: pointer; white-space: nowrap; position: relative; top: 1px; }
+  .mal-tab-active { border-color: var(--ink); color: var(--ink); background: #fff; box-shadow: 0 -2px 0 var(--amber) inset; }
+  .mal-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 26px; }
+  .mal-card { background: var(--paper-raised); border: 1px solid var(--rule); border-radius: 4px; padding: 16px 18px; }
+  .mal-card-label { font-size: 12px; color: var(--ink-soft); font-weight: 600; text-transform: uppercase; }
+  .mal-card-value { font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 600; margin: 7px 0 9px; }
+  .mal-delta { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+  .mal-delta-good { color: var(--green); }
+  .mal-delta-bad { color: var(--red); }
+  .mal-delta-flat { color: var(--ink-soft); }
+  .mal-section-title { font-family: 'Zilla Slab', serif; font-weight: 600; font-size: 16px; margin: 30px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); }
+  .mal-section-count { font-family: 'Inter', sans-serif; font-weight: 400; font-size: 12px; color: var(--ink-soft); margin-left: 8px; }
+  .mal-ad-header-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+  .mal-ad-header-row .mal-section-title-flex { margin: 0; border-bottom: none; padding-bottom: 0; flex: 1; }
+  .mal-ad-header-row { border-bottom: 1px solid var(--rule); padding-bottom: 6px; margin-bottom: 12px; }
+  .mal-ad-sort-select { padding: 6px 10px; border: 1.5px solid var(--rule); border-radius: 3px; background: var(--paper-raised); color: var(--ink); font-family: 'Inter', sans-serif; font-size: 12.5px; }
+  .mal-chart-box { background: var(--paper-raised); border: 1px solid var(--rule); border-radius: 4px; padding: 18px 16px; margin-bottom: 22px; }
+  .mal-chart-legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; }
+  .mal-chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .mal-chart-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .mal-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .mal-table th { text-align: right; font-weight: 600; color: var(--ink-soft); font-size: 11.5px; text-transform: uppercase; padding: 8px 10px; border-bottom: 2px solid var(--ink); }
+  .mal-table th:first-child, .mal-table td:first-child { text-align: left; }
+  .mal-table td { text-align: right; padding: 9px 10px; border-bottom: 1px solid var(--rule); font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; }
+  .mal-table tr:hover td { background: #F8F9F1; }
+  .mal-row-month { font-family: 'Inter', sans-serif; font-weight: 600; }
+  .mal-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; font-size: 14px; }
+  .mal-icon-btn:hover { color: var(--red); }
+  .mal-ad-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .mal-ad-row { display: flex; align-items: center; gap: 14px; background: var(--paper-raised); border: 1px solid var(--rule); border-radius: 4px; padding: 10px 14px; }
+  .mal-thumb { width: 52px; height: 52px; object-fit: cover; border-radius: 4px; border: 1px solid var(--rule); flex-shrink: 0; background: #fff; }
+  .mal-thumb-fallback { display: flex; align-items: center; justify-content: center; color: var(--ink-soft); background: #E2E4D6; font-size: 18px; }
+  .mal-ad-info { flex: 1; min-width: 0; }
+  .mal-ad-name { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mal-ad-utm { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--blue); display: flex; align-items: center; gap: 4px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mal-ad-utm-empty { color: var(--ink-soft); font-style: italic; }
+  .mal-ad-count { color: var(--ink-soft); font-style: italic; margin-left: 4px; }
+  .mal-ad-stats { display: flex; gap: 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; flex-shrink: 0; }
+  .mal-ad-stats div { display: flex; flex-direction: column; align-items: flex-end; }
+  .mal-ad-stats span { font-family: 'Inter', sans-serif; font-size: 10px; color: var(--ink-soft); text-transform: uppercase; }
+  .mal-toggle-ads { margin-bottom: 24px; font-size: 12.5px; padding: 7px 14px; }
+  .mal-modal-overlay { position: fixed; inset: 0; background: rgba(30,42,40,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+  .mal-modal { background: #fff; border-radius: 6px; max-width: 560px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 26px; }
+  .mal-modal h3 { font-family: 'Zilla Slab', serif; font-size: 19px; margin: 0 0 4px; }
+  .mal-modal p.mal-modal-sub { color: var(--ink-soft); font-size: 13px; margin: 0 0 18px; }
+  .mal-modal-small { max-width: 380px; }
+  .mal-field { margin-bottom: 13px; }
+  .mal-field label { display: block; font-size: 12.5px; font-weight: 600; margin-bottom: 5px; }
+  .mal-field label .mal-req { color: var(--red); }
+  .mal-field select { width: 100%; padding: 8px 10px; border: 1.5px solid var(--rule); border-radius: 3px; font-family: 'Inter', sans-serif; font-size: 13px; background: var(--paper-raised); color: var(--ink); }
+  .mal-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  .mal-field-group-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; margin-bottom: 10px; }
+  .mal-advanced-toggle { display: flex; align-items: center; gap: 6px; background: none; border: none; cursor: pointer; color: var(--blue); font-size: 12.5px; font-weight: 600; padding: 8px 0; margin-top: 4px; }
+  .mal-advanced-fields { border-top: 1px dashed var(--rule); margin-top: 8px; padding-top: 14px; }
+  .mal-field-alt { background: #F1F0E4; border: 1px dashed var(--rule); border-radius: 4px; padding: 10px 12px; }
+  .mal-field-alt label { color: var(--ink-soft); font-weight: 500; }
+  .mal-preview-table { width: 100%; font-size: 11px; border-collapse: collapse; margin-bottom: 16px; max-height: 140px; overflow: auto; display: block; }
+  .mal-preview-table thead, .mal-preview-table tbody { display: table; width: 100%; }
+  @media (max-width: 640px) {
+    .mal-title { font-size: 22px; }
+    .mal-cards { grid-template-columns: repeat(2, 1fr); }
+    .mal-ad-row { flex-wrap: wrap; }
+    .mal-ad-stats { width: 100%; justify-content: space-between; gap: 8px; }
+  }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .mal-header-actions, .mal-print-btn, .mal-toggle-ads, .mal-icon-btn, .mal-tabs {
+      display: none !important;
+    }
+    .mal-modal-overlay { display: none !important; }
+    .mal-chart-box, .mal-card, .mal-ad-row {
+      break-inside: avoid; box-shadow: none !important;
+    }
+    .mal-section-title { break-after: avoid; }
+    a[href]::after { content: none !important; }
+    .mal-shell { max-width: 100%; }
+  }
+
+  body.mal-exporting .mal-header-actions,
+  body.mal-exporting .mal-toggle-ads,
+  body.mal-exporting .mal-icon-btn,
+  body.mal-exporting .mal-tabs {
+    display: none !important;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ---------- local-storage backed "storage" shim (mirrors the Claude artifact storage API) ----------
+const LS_PREFIX = "ad-ledger::";
+const storage = {
+  async get(key) {
+    const v = localStorage.getItem(LS_PREFIX + key);
+    return v !== null ? { key, value: v } : null;
+  },
+  async set(key, value) {
+    localStorage.setItem(LS_PREFIX + key, value);
+    return { key, value };
+  },
+  async delete(key) {
+    localStorage.removeItem(LS_PREFIX + key);
+    return { key, deleted: true };
+  },
+  async list(prefix) {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(LS_PREFIX + prefix)) keys.push(k.slice(LS_PREFIX.length));
+    }
+    return { keys };
+  },
+};
+
+const STORAGE_PREFIX = "metaads-month:";
+const PURCHASE_ACTION_TYPES = [
+  "purchase",
+  "offsite_conversion.fb_pixel_purchase",
+  "onsite_web_purchase",
+  "onsite_web_app_purchase",
+  "omni_purchase",
+];
+
+const FIELD_GUESSES = {
+  date: ["reporting starts", "報表開始", "開始日期", "start date", "date"],
+  spend: ["amount spent", "花費金額", "spend", "花費", "廣告費"],
+  conversions: ["results", "成果", "conversions", "轉換次數", "購買次數", "訂單", "轉單"],
+  revenue: ["purchase conversion value", "轉換值", "revenue", "轉換金額", "purchases conversion value", "營收"],
+  roas: ["roas", "廣告投資報酬率", "購買 roas", "return on ad spend"],
+  campaign: ["campaign name", "廣告活動名稱", "campaign"],
+  ad: ["ad name", "廣告名稱", "ad"],
+  image: ["image url", "thumbnail", "縮圖", "圖片", "image link", "creative"],
+  utm: ["url parameters", "utm", "網址參數", "tracking"],
+};
+
+function guessColumn(headers, keywords) {
+  for (const kw of keywords) {
+    const idx = headers.findIndex((h) => h.toLowerCase().includes(kw.toLowerCase()) || h.includes(kw));
+    if (idx >= 0) return headers[idx];
+  }
+  return "";
+}
+function parseNumber(val) {
+  if (val === null || val === undefined) return 0;
+  const cleaned = String(val).replace(/[^0-9.\-]/g, "");
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+function parseMonthKey(dateStr) {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+  let m = s.match(/^(\d{4})[-/](\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}`;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return null;
+}
+function detectCurrency(header) {
+  const m = header && header.match(/\(([A-Z]{3})\)/);
+  return m ? m[1] : "TWD";
+}
+function monthLabel(key) {
+  const [y, m] = key.split("-");
+  return `${y}/${m}`;
+}
+function fmtInt(n) { return Math.round(n).toLocaleString("zh-TW"); }
+function fmtMoney(n, currency) {
+  try {
+    return new Intl.NumberFormat("zh-TW", { style: "currency", currency: currency || "TWD", maximumFractionDigits: 0 }).format(n);
+  } catch { return `${currency || ""} ${fmtInt(n)}`; }
+}
+function deriveMetrics(agg) {
+  const cpa = agg.conversions > 0 ? agg.spend / agg.conversions : null;
+  const roas = agg.spend > 0 && agg.revenue > 0 ? agg.revenue / agg.spend : null;
+  return { ...agg, cpa, roas };
+}
+function pctChange(curr, prev) {
+  if (prev === null || prev === undefined || prev === 0) return null;
+  if (curr === null || curr === undefined) return null;
+  return ((curr - prev) / prev) * 100;
+}
+
+function DeltaBadge({ value, invert = false }) {
+  if (value === null || value === undefined || !isFinite(value)) {
+    return <span className="mal-delta mal-delta-flat">—</span>;
+  }
+  const good = invert ? value < 0 : value > 0;
+  const flat = Math.abs(value) < 0.05;
+  const arrow = flat ? "→" : value > 0 ? "▲" : "▼";
+  const cls = flat ? "mal-delta-flat" : good ? "mal-delta-good" : "mal-delta-bad";
+  return <span className={`mal-delta ${cls}`}>{arrow} {Math.abs(value).toFixed(1)}%</span>;
+}
+
+function AdThumb({ src, alt }) {
+  const [errored, setErrored] = useState(false);
+  if (!src || errored) return <div className="mal-thumb mal-thumb-fallback">🖼</div>;
+  return <img src={src} alt={alt || "廣告預覽"} className="mal-thumb" onError={() => setErrored(true)} />;
+}
+
+// ---------- lightweight dependency-free charts ----------
+
+function SimpleBarChart({ data, seriesA, seriesB, colorA, colorB, labelA, labelB, fmtA, fmtB }) {
+  const w = 640, h = 200, padL = 6, padR = 6, padT = 10, padB = 26;
+  const n = data.length;
+  const groupW = (w - padL - padR) / n;
+  const barW = Math.min(22, groupW * 0.28);
+  const maxA = Math.max(1, ...data.map((d) => d[seriesA]));
+  const maxB = Math.max(1, ...data.map((d) => d[seriesB]));
+  return (
+    <div>
+      <div className="mal-chart-legend">
+        <span><i className="mal-chart-dot" style={{ background: colorA }}></i>{labelA}</span>
+        <span><i className="mal-chart-dot" style={{ background: colorB }}></i>{labelB}</span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} width="100%" height="200">
+        <line x1={padL} y1={h - padB} x2={w - padR} y2={h - padB} stroke="#C7CBB4" />
+        {data.map((d, i) => {
+          const cx = padL + groupW * i + groupW / 2;
+          const barH_A = ((h - padT - padB) * d[seriesA]) / maxA;
+          const barH_B = ((h - padT - padB) * d[seriesB]) / maxB;
+          return (
+            <g key={i}>
+              <rect x={cx - barW - 2} y={h - padB - barH_A} width={barW} height={barH_A} fill={colorA} rx="2">
+                <title>{d.month}: {fmtA(d[seriesA])}</title>
+              </rect>
+              <rect x={cx + 2} y={h - padB - barH_B} width={barW} height={barH_B} fill={colorB} rx="2">
+                <title>{d.month}: {fmtB(d[seriesB])}</title>
+              </rect>
+              <text x={cx} y={h - 8} textAnchor="middle" fontSize="11" fontFamily="IBM Plex Mono, monospace" fill="#56635C">{d.month}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function SimpleLineChart({ data, seriesA, seriesB, colorA, colorB, labelA, labelB, fmtA, fmtB }) {
+  const w = 640, h = 200, padL = 6, padR = 6, padT = 14, padB = 26;
+  const n = data.length;
+  const stepX = n > 1 ? (w - padL - padR) / (n - 1) : 0;
+  const valsA = data.map((d) => d[seriesA]).filter((v) => v !== null && v !== undefined);
+  const valsB = data.map((d) => d[seriesB]).filter((v) => v !== null && v !== undefined);
+  const maxA = Math.max(1, ...valsA), minA = Math.min(0, ...valsA);
+  const maxB = Math.max(1, ...valsB), minB = Math.min(0, ...valsB);
+  const yA = (v) => h - padB - ((v - minA) / (maxA - minA || 1)) * (h - padT - padB);
+  const yB = (v) => h - padB - ((v - minB) / (maxB - minB || 1)) * (h - padT - padB);
+  const pathFor = (key, yf) => {
+    let d = "";
+    data.forEach((pt, i) => {
+      const v = pt[key];
+      if (v === null || v === undefined) return;
+      const x = padL + stepX * i;
+      d += (d ? " L " : "M ") + x + " " + yf(v);
+    });
+    return d;
+  };
+  return (
+    <div>
+      <div className="mal-chart-legend">
+        <span><i className="mal-chart-dot" style={{ background: colorA }}></i>{labelA}</span>
+        <span><i className="mal-chart-dot" style={{ background: colorB }}></i>{labelB}</span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} width="100%" height="200">
+        <line x1={padL} y1={h - padB} x2={w - padR} y2={h - padB} stroke="#C7CBB4" />
+        <path d={pathFor(seriesA, yA)} fill="none" stroke={colorA} strokeWidth="2.5" />
+        <path d={pathFor(seriesB, yB)} fill="none" stroke={colorB} strokeWidth="2.5" />
+        {data.map((pt, i) => {
+          const x = padL + stepX * i;
+          return (
+            <g key={i}>
+              {pt[seriesA] !== null && pt[seriesA] !== undefined && (
+                <circle cx={x} cy={yA(pt[seriesA])} r="3.2" fill={colorA}><title>{pt.month} {labelA}: {fmtA(pt[seriesA])}</title></circle>
+              )}
+              {pt[seriesB] !== null && pt[seriesB] !== undefined && (
+                <circle cx={x} cy={yB(pt[seriesB])} r="3.2" fill={colorB}><title>{pt.month} {labelB}: {fmtB(pt[seriesB])}</title></circle>
+              )}
+              <text x={x} y={h - 8} textAnchor="middle" fontSize="11" fontFamily="IBM Plex Mono, monospace" fill="#56635C">{pt.month}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ---------- main app ----------
+
+function MetaAdsLedger() {
+  const [months, setMonths] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [stage, setStage] = useState("dashboard");
+  const [pendingRows, setPendingRows] = useState(null);
+  const [headers, setHeaders] = useState([]);
+  const [mapping, setMapping] = useState({});
+  const [focusMonth, setFocusMonth] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [showAllAds, setShowAllAds] = useState(false);
+  const [adSortMode, setAdSortMode] = useState("spend");
+  const [showAdvancedMapping, setShowAdvancedMapping] = useState(false);
+  const [showApiPanel, setShowApiPanel] = useState(false);
+  const [thumbMap, setThumbMap] = useState(null);
+  const thumbFileInputRef = useRef(null);
+  const [apiMode, setApiMode] = useState("full"); // "full" | "thumbsOnly"
+  const [apiToken, setApiToken] = useState("");
+  const [apiAccountId, setApiAccountId] = useState("");
+  const [apiMonth, setApiMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState(null);
+  const [apiNotice, setApiNotice] = useState(null);
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    loadAll();
+    storage.get("meta-api-account-id").then((res) => {
+      if (res && res.value) setApiAccountId(res.value);
+    }).catch(() => {});
+  }, []);
+  useEffect(() => { setShowAllAds(false); }, [focusMonth]);
+
+  async function loadAll() {
+    setLoading(true); setError(null);
+    try {
+      const listRes = await storage.list(STORAGE_PREFIX);
+      const keys = listRes.keys || [];
+      const entries = {};
+      for (const k of keys) {
+        const res = await storage.get(k);
+        if (res && res.value) entries[k.slice(STORAGE_PREFIX.length)] = JSON.parse(res.value);
+      }
+      setMonths(entries);
+      const sorted = Object.keys(entries).sort();
+      if (sorted.length) setFocusMonth(sorted[sorted.length - 1]);
+    } catch (e) {
+      setError("讀取先前資料時發生問題,先從空白帳本開始。");
+    } finally { setLoading(false); }
+  }
+
+  function handleThumbMapSelect(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setError(null);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const json = JSON.parse(ev.target.result);
+        setThumbMap(json);
+        setNotice(`已載入 ${Object.keys(json).length} 筆縮圖對照,對得上名稱的廣告會自動顯示縮圖。`);
+        setTimeout(() => setNotice(null), 5000);
+      } catch {
+        setError("這個檔案不是有效的縮圖對照表(JSON)。");
+      }
+    };
+    reader.onerror = () => setError("讀取縮圖對照表失敗,請再試一次。");
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  function handleFileSelect(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setError(null);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      Papa.parse(ev.target.result, {
+        header: true, skipEmptyLines: true,
+        complete: (results) => {
+          const rows = results.data;
+          const hdrs = results.meta.fields || [];
+          if (!rows.length || !hdrs.length) { setError("這個檔案看起來是空的,或不是有效的 CSV。"); return; }
+          const guess = {
+            date: guessColumn(hdrs, FIELD_GUESSES.date),
+            spend: guessColumn(hdrs, FIELD_GUESSES.spend),
+            conversions: guessColumn(hdrs, FIELD_GUESSES.conversions),
+            revenue: guessColumn(hdrs, FIELD_GUESSES.revenue),
+            roas: guessColumn(hdrs, FIELD_GUESSES.roas),
+            campaign: guessColumn(hdrs, FIELD_GUESSES.campaign),
+            ad: guessColumn(hdrs, FIELD_GUESSES.ad),
+            image: guessColumn(hdrs, FIELD_GUESSES.image),
+            utm: guessColumn(hdrs, FIELD_GUESSES.utm),
+          };
+          setHeaders(hdrs); setMapping(guess); setPendingRows(rows); setStage("mapping"); setShowAdvancedMapping(false);
+        },
+        error: () => setError("解析 CSV 時發生錯誤,請確認檔案格式。"),
+      });
+    };
+    reader.onerror = () => setError("讀取檔案失敗,請再試一次。");
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  async function confirmMapping() {
+    if (!mapping.date || !mapping.spend || !mapping.conversions) return;
+    const currency = detectCurrency(mapping.spend);
+    const agg = {};
+    let skipped = 0;
+    for (const row of pendingRows) {
+      const monthKey = parseMonthKey(row[mapping.date]);
+      if (!monthKey) { skipped++; continue; }
+      if (!agg[monthKey]) agg[monthKey] = { spend: 0, conversions: 0, revenue: 0, campaignSet: new Set(), ads: {}, currency };
+      const a = agg[monthKey];
+      const rowSpend = parseNumber(row[mapping.spend]);
+      const rowConv = parseNumber(row[mapping.conversions]);
+      const rowRev = mapping.revenue
+        ? parseNumber(row[mapping.revenue])
+        : mapping.roas
+        ? parseNumber(row[mapping.roas]) * rowSpend
+        : 0;
+      a.spend += rowSpend; a.conversions += rowConv; a.revenue += rowRev;
+      if (mapping.campaign && row[mapping.campaign]) a.campaignSet.add(row[mapping.campaign]);
+
+      if (mapping.ad || mapping.utm) {
+        const adNameRaw = mapping.ad ? (row[mapping.ad] || "").trim() : "";
+        const utmRaw = mapping.utm ? (row[mapping.utm] || "").trim() : "";
+        const groupKey = utmRaw ? "utm:" + utmRaw : adNameRaw ? "ad:" + adNameRaw : null;
+        if (groupKey) {
+          if (!a.ads[groupKey]) a.ads[groupKey] = { utm: utmRaw, names: new Set(), image: mapping.image ? row[mapping.image] || "" : "", spend: 0, conversions: 0, revenue: 0 };
+          const ad = a.ads[groupKey];
+          if (adNameRaw) ad.names.add(adNameRaw);
+          ad.spend += rowSpend; ad.conversions += rowConv; ad.revenue += rowRev;
+          if (!ad.image && mapping.image && row[mapping.image]) ad.image = row[mapping.image];
+          if (!ad.utm && utmRaw) ad.utm = utmRaw;
+        }
+      }
+    }
+    const monthKeys = Object.keys(agg);
+    if (!monthKeys.length) { setError("找不到任何可辨識的日期,請確認選擇的日期欄位正確。"); return; }
+
+    const updated = { ...months };
+    for (const mk of monthKeys) {
+      const a = agg[mk];
+      const record = {
+        spend: a.spend, conversions: a.conversions, revenue: a.revenue,
+        campaigns: a.campaignSet.size, currency: a.currency,
+        ads: Object.values(a.ads).map((ad) => {
+          const nameList = [...ad.names];
+          const adCount = nameList.length || 1;
+          const name = nameList.length === 0 ? (ad.utm || "未命名廣告") : nameList.length === 1 ? nameList[0] : `${nameList[0]} 等 ${nameList.length} 支廣告`;
+          return { name, utm: ad.utm, image: ad.image, spend: ad.spend, conversions: ad.conversions, revenue: ad.revenue, adCount, rawNames: nameList };
+        }).sort((x, y) => y.spend - x.spend),
+      };
+      try {
+        await storage.set(STORAGE_PREFIX + mk, JSON.stringify(record));
+        updated[mk] = record;
+      } catch { setError(`儲存 ${monthLabel(mk)} 的資料時失敗,請再試一次。`); }
+    }
+    setMonths(updated);
+    const sorted = Object.keys(updated).sort();
+    setFocusMonth(sorted[sorted.length - 1]);
+    setStage("dashboard"); setPendingRows(null);
+    setNotice(`已更新 ${monthKeys.map(monthLabel).join("、")} 的報表${skipped ? `(略過 ${skipped} 筆無法辨識日期的資料)` : ""}。`);
+    setTimeout(() => setNotice(null), 5000);
+  }
+
+  async function deleteMonth(mk) {
+    try {
+      await storage.delete(STORAGE_PREFIX + mk);
+      const updated = { ...months }; delete updated[mk];
+      setMonths(updated);
+      const sorted = Object.keys(updated).sort();
+      if (focusMonth === mk) setFocusMonth(sorted.length ? sorted[sorted.length - 1] : null);
+    } catch { setError("刪除失敗,請再試一次。"); }
+    setConfirmDelete(null);
+  }
+
+  async function exportPDF() {
+    if (!window.html2canvas || !window.jspdf) {
+      setError("PDF 匯出工具還沒載入完成,請確認網路連線後再試一次。");
+      return;
+    }
+    setPdfExporting(true);
+    setError(null);
+    document.body.classList.add("mal-exporting");
+    try {
+      const target = document.querySelector(".mal-shell");
+      const canvas = await window.html2canvas(target, { scale: 2, backgroundColor: "#EDEFE3", useCORS: true });
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF("p", "pt", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const pxPerPagePt = canvas.width / pageWidth; // canvas px per pdf pt, horizontally
+      const pageHeightInCanvasPx = pageHeight * pxPerPagePt;
+
+      let renderedHeight = 0;
+      let pageNum = 0;
+      while (renderedHeight < canvas.height) {
+        const sliceHeight = Math.min(pageHeightInCanvasPx, canvas.height - renderedHeight);
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sliceHeight;
+        const ctx = pageCanvas.getContext("2d");
+        ctx.drawImage(canvas, 0, renderedHeight, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+        const pageImgData = pageCanvas.toDataURL("image/jpeg", 0.92);
+        if (pageNum > 0) pdf.addPage();
+        pdf.addImage(pageImgData, "JPEG", 0, 0, imgWidth, (sliceHeight * imgWidth) / canvas.width);
+        renderedHeight += sliceHeight;
+        pageNum++;
+      }
+
+      const label = focusMonth ? monthLabel(focusMonth).replace("/", "-") : "全部月份";
+      pdf.save(`廣告帳本-${label}.pdf`);
+    } catch (e) {
+      setError("匯出 PDF 失敗:" + e.message);
+    } finally {
+      document.body.classList.remove("mal-exporting");
+      setPdfExporting(false);
+    }
+  }
+
+  async function resetAll() {
+    try {
+      for (const mk of Object.keys(months)) await storage.delete(STORAGE_PREFIX + mk);
+      setMonths({}); setFocusMonth(null);
+    } catch { setError("重置失敗,請再試一次。"); }
+    setConfirmReset(false);
+  }
+
+  async function fetchFullMonthFromApi() {
+    if (!apiToken.trim() || !apiAccountId.trim() || !apiMonth) {
+      setApiError("請填入存取權杖、廣告帳號 ID,並選擇月份。");
+      return;
+    }
+    setApiError(null);
+    setApiNotice(null);
+    setApiLoading(true);
+    try {
+      const cleanId = apiAccountId.trim().replace(/^act_/, "");
+      await storage.set("meta-api-account-id", cleanId);
+      const [y, m] = apiMonth.split("-").map(Number);
+      const since = `${apiMonth}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
+      const until = `${apiMonth}-${String(lastDay).padStart(2, "0")}`;
+      const timeRange = encodeURIComponent(JSON.stringify({ since, until }));
+      const token = encodeURIComponent(apiToken.trim());
+
+      // 0) account currency
+      let currency = "TWD";
+      try {
+        const curRes = await fetch(`https://graph.facebook.com/v19.0/act_${cleanId}?fields=currency&access_token=${token}`);
+        const curJson = await curRes.json();
+        if (curJson.currency) currency = curJson.currency;
+      } catch { /* fall back to TWD */ }
+
+      // 1) per-ad performance for the month
+      let insightsUrl =
+        `https://graph.facebook.com/v19.0/act_${cleanId}/insights?level=ad` +
+        `&fields=ad_id,ad_name,spend,actions,action_values&time_range=${timeRange}&limit=500&access_token=${token}`;
+      let rows = [];
+      let page = 0;
+      while (insightsUrl && page < 20) {
+        const res = await fetch(insightsUrl);
+        const json = await res.json();
+        if (json.error) throw new Error(json.error.message || "Graph API 回傳錯誤(讀取成效資料時)");
+        rows = rows.concat(json.data || []);
+        insightsUrl = json.paging && json.paging.next ? json.paging.next : null;
+        page++;
+      }
+      if (!rows.length) {
+        setApiNotice(`${monthLabel(apiMonth)} 沒有抓到任何廣告成效資料,請確認該月份確實有花費紀錄。`);
+        setApiLoading(false);
+        return;
+      }
+
+      // 2) thumbnails + UTM tags, matched by ad_id (more reliable than name)
+      let adsUrl =
+        `https://graph.facebook.com/v19.0/act_${cleanId}/ads?fields=id,name,url_tags,creative{thumbnail_url,image_url}` +
+        `&limit=500&access_token=${token}`;
+      let thumbMap = {};
+      let utmMap = {};
+      let page2 = 0;
+      while (adsUrl && page2 < 20) {
+        const res = await fetch(adsUrl);
+        const json = await res.json();
+        if (json.error) throw new Error(json.error.message || "Graph API 回傳錯誤(讀取廣告清單時)");
+        (json.data || []).forEach((ad) => {
+          const thumb = ad.creative && (ad.creative.thumbnail_url || ad.creative.image_url);
+          if (thumb) thumbMap[ad.id] = thumb;
+          const tags = ad.url_tags || "";
+          if (tags) utmMap[ad.id] = tags;
+        });
+        adsUrl = json.paging && json.paging.next ? json.paging.next : null;
+        page2++;
+      }
+
+      // 3) aggregate, merging ads that share the same UTM tag (same behaviour as the CSV import path)
+      let totalSpend = 0, totalConv = 0, totalRev = 0;
+      const grouped = {};
+      rows.forEach((row) => {
+        const spend = parseFloat(row.spend) || 0;
+        let conversions = 0, revenue = 0;
+        (row.actions || []).forEach((a) => {
+          if (PURCHASE_ACTION_TYPES.includes(a.action_type)) conversions += parseFloat(a.value) || 0;
+        });
+        (row.action_values || []).forEach((a) => {
+          if (PURCHASE_ACTION_TYPES.includes(a.action_type)) revenue += parseFloat(a.value) || 0;
+        });
+        totalSpend += spend; totalConv += conversions; totalRev += revenue;
+
+        const adName = row.ad_name || "(未命名廣告)";
+        const utm = utmMap[row.ad_id] || "";
+        const groupKey = utm ? "utm:" + utm : "ad:" + row.ad_id;
+        if (!grouped[groupKey]) {
+          grouped[groupKey] = { utm, names: new Set(), image: "", spend: 0, conversions: 0, revenue: 0 };
+        }
+        const g = grouped[groupKey];
+        g.names.add(adName);
+        g.spend += spend; g.conversions += conversions; g.revenue += revenue;
+        if (!g.image && thumbMap[row.ad_id]) g.image = thumbMap[row.ad_id];
+      });
+
+      const ads = Object.values(grouped)
+        .map((g) => {
+          const nameList = [...g.names];
+          const adCount = nameList.length || 1;
+          const name =
+            nameList.length === 0
+              ? g.utm || "未命名廣告"
+              : nameList.length === 1
+              ? nameList[0]
+              : `${nameList[0]} 等 ${nameList.length} 支廣告`;
+          return { name, utm: g.utm, image: g.image, spend: g.spend, conversions: g.conversions, revenue: g.revenue, adCount, rawNames: nameList };
+        })
+        .sort((a, b) => b.spend - a.spend);
+
+      const record = {
+        spend: totalSpend,
+        conversions: totalConv,
+        revenue: totalRev,
+        campaigns: 0,
+        currency: currency,
+        ads,
+      };
+      await storage.set(STORAGE_PREFIX + apiMonth, JSON.stringify(record));
+      setMonths((m) => ({ ...m, [apiMonth]: record }));
+      setFocusMonth(apiMonth);
+      setApiNotice(`已從 API 抓到 ${monthLabel(apiMonth)} 的資料,共 ${ads.length} 支廣告。`);
+      setShowApiPanel(false);
+    } catch (e) {
+      setApiError("抓取失敗:" + e.message + "。請確認權杖沒過期、廣告帳號 ID 正確,且已授權 ads_read 權限。");
+    } finally {
+      setApiLoading(false);
+    }
+  }
+
+  async function fetchThumbnailsFromApi() {
+    if (!apiToken.trim() || !apiAccountId.trim()) {
+      setApiError("請填入存取權杖跟廣告帳號 ID。");
+      return;
+    }
+    setApiError(null);
+    setApiNotice(null);
+    setApiLoading(true);
+    try {
+      const cleanId = apiAccountId.trim().replace(/^act_/, "");
+      await storage.set("meta-api-account-id", cleanId);
+      let url =
+        `https://graph.facebook.com/v19.0/act_${cleanId}/ads?fields=name,creative{thumbnail_url,image_url}` +
+        `&limit=500&access_token=${encodeURIComponent(apiToken.trim())}`;
+      let allAds = [];
+      let page = 0;
+      while (url && page < 20) {
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json.error) throw new Error(json.error.message || "Graph API 回傳錯誤");
+        allAds = allAds.concat(json.data || []);
+        url = json.paging && json.paging.next ? json.paging.next : null;
+        page++;
+      }
+      const map = {};
+      allAds.forEach((ad) => {
+        const thumb = ad.creative && (ad.creative.thumbnail_url || ad.creative.image_url);
+        if (ad.name && thumb && !map[ad.name]) map[ad.name] = thumb;
+      });
+
+      const updated = { ...months };
+      let matchedCount = 0;
+      for (const mk of Object.keys(updated)) {
+        const rec = updated[mk];
+        if (!rec.ads || !rec.ads.length) continue;
+        let changed = false;
+        const newAds = rec.ads.map((ad) => {
+          if (ad.image) return ad;
+          const names = ad.rawNames && ad.rawNames.length ? ad.rawNames : [ad.name];
+          const found = names.map((n) => map[n]).find(Boolean);
+          if (found) {
+            changed = true;
+            matchedCount++;
+            return { ...ad, image: found };
+          }
+          return ad;
+        });
+        if (changed) {
+          const newRec = { ...rec, ads: newAds };
+          await storage.set(STORAGE_PREFIX + mk, JSON.stringify(newRec));
+          updated[mk] = newRec;
+        }
+      }
+      setMonths(updated);
+      setApiNotice(
+        matchedCount > 0
+          ? `已從 API 比對到 ${matchedCount} 支廣告的縮圖。`
+          : `API 抓到 ${allAds.length} 支廣告,但沒有比對到任何一支——請確認廣告名稱跟你 CSV 裡的廣告名稱完全一致。`
+      );
+      setShowApiPanel(false);
+    } catch (e) {
+      setApiError("抓取失敗:" + e.message + "。請確認權杖沒過期、廣告帳號 ID 正確,且已授權 ads_read 權限。");
+    } finally {
+      setApiLoading(false);
+    }
+  }
+
+  const sortedKeys = useMemo(() => Object.keys(months).sort(), [months]);
+  const enriched = useMemo(() => { const out = {}; for (const mk of sortedKeys) out[mk] = deriveMetrics(months[mk]); return out; }, [months, sortedKeys]);
+  const chartData = useMemo(() => sortedKeys.map((mk) => ({
+    month: monthLabel(mk), 廣告費: Math.round(enriched[mk].spend), 轉單: enriched[mk].conversions,
+    CPA: enriched[mk].cpa !== null ? Number(enriched[mk].cpa.toFixed(1)) : null,
+    ROAS: enriched[mk].roas !== null ? Number(enriched[mk].roas.toFixed(2)) : null,
+  })), [sortedKeys, enriched]);
+  const currency = sortedKeys.length ? months[sortedKeys[sortedKeys.length - 1]].currency : "TWD";
+  const focusIdx = sortedKeys.indexOf(focusMonth);
+  const focusData = focusMonth ? enriched[focusMonth] : null;
+  const prevData = focusIdx > 0 ? enriched[sortedKeys[focusIdx - 1]] : null;
+  const MIN_AD_SPEND = 500;
+  const visibleAds = focusData && focusData.ads ? focusData.ads.filter((ad) => ad.spend >= MIN_AD_SPEND) : [];
+  const hiddenAdCount = focusData && focusData.ads ? focusData.ads.length - visibleAds.length : 0;
+
+  const sortedVisibleAds = useMemo(() => {
+    const withMetrics = visibleAds.map((ad) => ({
+      ad,
+      cpa: ad.conversions > 0 ? ad.spend / ad.conversions : null,
+      roas: ad.spend > 0 && ad.revenue > 0 ? ad.revenue / ad.spend : null,
+    }));
+    if (adSortMode === "cpa") {
+      return withMetrics
+        .slice()
+        .sort((a, b) => {
+          if (a.cpa === null) return 1;
+          if (b.cpa === null) return -1;
+          return a.cpa - b.cpa;
+        })
+        .map((x) => x.ad);
+    }
+    if (adSortMode === "roas") {
+      return withMetrics
+        .slice()
+        .sort((a, b) => {
+          if (a.roas === null) return 1;
+          if (b.roas === null) return -1;
+          return b.roas - a.roas;
+        })
+        .map((x) => x.ad);
+    }
+    if (adSortMode === "composite") {
+      // rank-based composite: best CPA (lowest) and best ROAS (highest) each contribute a rank;
+      // lower combined rank = better overall performance. Ads missing a metric get the worst rank.
+      const n = withMetrics.length;
+      const byCpa = withMetrics
+        .map((x, i) => i)
+        .sort((i, j) => {
+          const a = withMetrics[i].cpa, b = withMetrics[j].cpa;
+          if (a === null) return 1;
+          if (b === null) return -1;
+          return a - b;
+        });
+      const byRoas = withMetrics
+        .map((x, i) => i)
+        .sort((i, j) => {
+          const a = withMetrics[i].roas, b = withMetrics[j].roas;
+          if (a === null) return 1;
+          if (b === null) return -1;
+          return b - a;
+        });
+      const cpaRank = new Array(n), roasRank = new Array(n);
+      byCpa.forEach((idx, rank) => { cpaRank[idx] = rank; });
+      byRoas.forEach((idx, rank) => { roasRank[idx] = rank; });
+      return withMetrics
+        .map((x, i) => ({ ad: x.ad, score: cpaRank[i] + roasRank[i] }))
+        .sort((a, b) => a.score - b.score)
+        .map((x) => x.ad);
+    }
+    // default: by spend, high to low
+    return withMetrics.map((x) => x.ad).sort((a, b) => b.spend - a.spend);
+  }, [visibleAds, adSortMode]);
+
+  return (
+    <div className="mal-shell">
+      <div className="mal-header">
+        <div className="mal-title-block">
+          <div className="mal-stamp">📖</div>
+          <div>
+            <h1 className="mal-title">廣告帳本</h1>
+            <p className="mal-subtitle">廣告費 · 轉單 · CPA · ROAS,每月自動累積(資料存在本機瀏覽器)</p>
+          </div>
+        </div>
+        <div className="mal-header-actions" style={{ display: "flex", gap: 10 }}>
+          <input ref={fileInputRef} type="file" accept=".csv" style={{ display: "none" }} onChange={handleFileSelect} />
+          <button className="mal-btn mal-btn-primary" onClick={() => fileInputRef.current.click()}>⬆ 上傳本月報表</button>
+          <button className="mal-btn" onClick={() => setShowApiPanel(true)}>🔌 連接 Meta API</button>
+          <input ref={thumbFileInputRef} type="file" accept=".json" style={{ display: "none" }} onChange={handleThumbMapSelect} />
+          <button className="mal-btn" onClick={() => thumbFileInputRef.current.click()}>🖼 匯入縮圖對照表</button>
+          {sortedKeys.length > 0 && <button className="mal-btn mal-print-btn" onClick={() => window.print()}>🖨 列印</button>}
+          {sortedKeys.length > 0 && (
+            <button className="mal-btn mal-print-btn" disabled={pdfExporting} onClick={exportPDF}>
+              {pdfExporting ? "匯出中…" : "📄 匯出 PDF"}
+            </button>
+          )}
+          {sortedKeys.length > 0 && <button className="mal-btn mal-btn-danger" onClick={() => setConfirmReset(true)}>🗑 重置</button>}
+        </div>
+      </div>
+
+      {notice && <div className="mal-notice">✓ {notice}</div>}
+      {apiNotice && <div className="mal-notice">✓ {apiNotice}</div>}
+      {error && <div className="mal-error">⚠ {error}</div>}
+      {apiError && <div className="mal-error">⚠ {apiError}</div>}
+
+      {loading ? <p style={{ color: "var(--ink-soft)" }}>載入帳本中…</p> : sortedKeys.length === 0 ? (
+        <div className="mal-empty">
+          <div style={{ fontSize: 30 }}>📖</div>
+          <h3 style={{ fontFamily: "'Zilla Slab', serif", margin: "12px 0 0" }}>帳本還是空的</h3>
+          <p>從 Meta 廣告管理員的「匯出」功能匯出 CSV,建議包含花費金額、成果/購買次數、轉換價值與報表開始日期。若有廣告名稱、預覽圖連結、UTM 網址參數欄位,也會一併整理成逐廣告明細。</p>
+          <button className="mal-btn mal-btn-primary" onClick={() => fileInputRef.current.click()}>⬆ 上傳第一份報表</button>
+        </div>
+      ) : (
+        <>
+          <div className="mal-tabs">
+            {sortedKeys.map((mk) => (
+              <div key={mk} className={`mal-tab ${mk === focusMonth ? "mal-tab-active" : ""}`} onClick={() => setFocusMonth(mk)}>{monthLabel(mk)}</div>
+            ))}
+          </div>
+
+          {focusData && (
+            <div className="mal-cards">
+              <div className="mal-card">
+                <div className="mal-card-label">廣告費</div>
+                <div className="mal-card-value">{fmtMoney(focusData.spend, focusData.currency)}</div>
+                <DeltaBadge value={pctChange(focusData.spend, prevData && prevData.spend)} />
+              </div>
+              <div className="mal-card">
+                <div className="mal-card-label">轉單數</div>
+                <div className="mal-card-value">{fmtInt(focusData.conversions)}</div>
+                <DeltaBadge value={pctChange(focusData.conversions, prevData && prevData.conversions)} />
+              </div>
+              <div className="mal-card">
+                <div className="mal-card-label">CPA(每筆訂單成本)</div>
+                <div className="mal-card-value">{focusData.cpa !== null ? fmtMoney(focusData.cpa, focusData.currency) : "—"}</div>
+                <DeltaBadge value={pctChange(focusData.cpa, prevData && prevData.cpa)} invert />
+              </div>
+              <div className="mal-card">
+                <div className="mal-card-label">ROAS</div>
+                <div className="mal-card-value">{focusData.roas !== null ? `${focusData.roas.toFixed(2)}x` : "—"}</div>
+                <DeltaBadge value={pctChange(focusData.roas, prevData && prevData.roas)} />
+              </div>
+            </div>
+          )}
+
+          {sortedKeys.length > 1 && (
+            <>
+              <h2 className="mal-section-title">廣告費 / 轉單 趨勢</h2>
+              <div className="mal-chart-box">
+                <SimpleBarChart data={chartData} seriesA="廣告費" seriesB="轉單" colorA="#2F4B7C" colorB="#B8862E"
+                  labelA="廣告費" labelB="轉單" fmtA={(v) => fmtMoney(v, currency)} fmtB={(v) => v} />
+              </div>
+              <h2 className="mal-section-title">CPA / ROAS 趨勢</h2>
+              <div className="mal-chart-box">
+                <SimpleLineChart data={chartData} seriesA="CPA" seriesB="ROAS" colorA="#A8362F" colorB="#3E6B4F"
+                  labelA={`CPA (${currency})`} labelB="ROAS (x)" fmtA={(v) => fmtMoney(v, currency)} fmtB={(v) => v + "x"} />
+              </div>
+            </>
+          )}
+
+          {focusData && visibleAds.length > 0 && (
+            <>
+              <div className="mal-ad-header-row">
+                <h2 className="mal-section-title mal-section-title-flex">
+                  {monthLabel(focusMonth)} 廣告明細<span className="mal-section-count">({visibleAds.length} 支廣告{hiddenAdCount > 0 ? `,已隱藏 ${hiddenAdCount} 支花費低於 ${MIN_AD_SPEND} 的廣告` : ""})</span>
+                </h2>
+                <select className="mal-ad-sort-select" value={adSortMode} onChange={(e) => setAdSortMode(e.target.value)}>
+                  <option value="spend">排序:廣告費（高→低）</option>
+                  <option value="cpa">排序:CPA（好→壞）</option>
+                  <option value="roas">排序:ROAS（好→壞）</option>
+                  <option value="composite">排序:綜合成效（好→壞）</option>
+                </select>
+              </div>
+              <div className="mal-ad-list">
+                {(showAllAds ? sortedVisibleAds : sortedVisibleAds.slice(0, 6)).map((ad, i) => {
+                  const adCpa = ad.conversions > 0 ? ad.spend / ad.conversions : null;
+                  const adRoas = ad.spend > 0 && ad.revenue > 0 ? ad.revenue / ad.spend : null;
+                  const names = ad.rawNames && ad.rawNames.length ? ad.rawNames : [ad.name];
+                  const resolvedImage = ad.image || (thumbMap && names.map((n) => thumbMap[n]).find(Boolean)) || "";
+                  return (
+                    <div className="mal-ad-row" key={ad.name + i}>
+                      <AdThumb src={resolvedImage} alt={ad.name} />
+                      <div className="mal-ad-info">
+                        <div className="mal-ad-name" title={ad.name}>{ad.name}</div>
+                        {ad.utm ? (
+                          <div className="mal-ad-utm" title={ad.utm}>🏷 {ad.utm}{ad.adCount > 1 && <span className="mal-ad-count">· 合併 {ad.adCount} 支廣告</span>}</div>
+                        ) : <div className="mal-ad-utm mal-ad-utm-empty">未提供追蹤代碼</div>}
+                      </div>
+                      <div className="mal-ad-stats">
+                        <div><span>廣告費</span>{fmtMoney(ad.spend, focusData.currency)}</div>
+                        <div><span>轉單</span>{fmtInt(ad.conversions)}</div>
+                        <div><span>CPA</span>{adCpa !== null ? fmtMoney(adCpa, focusData.currency) : "—"}</div>
+                        <div><span>ROAS</span>{adRoas !== null ? `${adRoas.toFixed(2)}x` : "—"}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {visibleAds.length > 6 && (
+                <button className="mal-btn mal-toggle-ads" onClick={() => setShowAllAds((v) => !v)}>
+                  {showAllAds ? "▲ 收合" : `▼ 顯示全部 ${visibleAds.length} 支廣告`}
+                </button>
+              )}
+            </>
+          )}
+
+          <h2 className="mal-section-title">每月明細</h2>
+          <div style={{ overflowX: "auto" }}>
+            <table className="mal-table">
+              <thead><tr><th>月份</th><th>廣告費</th><th>轉單</th><th>CPA</th><th>ROAS</th><th></th></tr></thead>
+              <tbody>
+                {sortedKeys.slice().reverse().map((mk) => {
+                  const d = enriched[mk];
+                  return (
+                    <tr key={mk}>
+                      <td className="mal-row-month">{monthLabel(mk)}</td>
+                      <td>{fmtMoney(d.spend, d.currency)}</td>
+                      <td>{fmtInt(d.conversions)}</td>
+                      <td>{d.cpa !== null ? fmtMoney(d.cpa, d.currency) : "—"}</td>
+                      <td>{d.roas !== null ? `${d.roas.toFixed(2)}x` : "—"}</td>
+                      <td><button className="mal-icon-btn" onClick={() => setConfirmDelete(mk)} title="刪除此月資料">🗑</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {stage === "mapping" && pendingRows && (
+        <div className="mal-modal-overlay">
+          <div className="mal-modal">
+            <h3>對應欄位</h3>
+            <p className="mal-modal-sub">確認 CSV 裡哪個欄位對應到每個指標,系統已先幫你猜好。</p>
+            <div style={{ overflowX: "auto" }}>
+              <table className="mal-preview-table">
+                <thead><tr>{headers.map((h) => <th key={h} style={{ padding: "4px 8px", textAlign: "left", color: "var(--ink-soft)", borderBottom: "1px solid var(--rule)" }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {pendingRows.slice(0, 3).map((r, i) => (
+                    <tr key={i}>{headers.map((h) => <td key={h} style={{ padding: "4px 8px", borderBottom: "1px solid var(--rule)", whiteSpace: "nowrap" }}>{r[h]}</td>)}</tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mal-field-group-label">先填這 4 項就好</div>
+            {[
+              ["date", "日期(報表開始日)", true],
+              ["spend", "廣告費 / 花費金額", true],
+              ["conversions", "轉單數(成果 / 購買次數)", true],
+              ["revenue", "轉換價值 / 營收 —— 沒選這項,ROAS 會顯示 —", false],
+            ].map(([key, label, required]) => (
+              <div className="mal-field" key={key}>
+                <label>{label} {required && <span className="mal-req">*</span>}</label>
+                <select value={mapping[key] || ""} onChange={(e) => setMapping((m) => ({ ...m, [key]: e.target.value }))}>
+                  <option value="">{required ? "— 請選擇 —" : "— 不使用 —"}</option>
+                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            ))}
+
+            {!mapping.revenue && (
+              <div className="mal-field mal-field-alt">
+                <label>沒有「轉換價值」欄位?改選「購買 ROAS」欄位也可以(選填,系統會自動換算金額)</label>
+                <select value={mapping.roas || ""} onChange={(e) => setMapping((m) => ({ ...m, roas: e.target.value }))}>
+                  <option value="">— 不使用 —</option>
+                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            )}
+
+            <button type="button" className="mal-advanced-toggle" onClick={() => setShowAdvancedMapping((v) => !v)}>
+              {showAdvancedMapping ? "▲" : "▼"} 進階選項(廣告名稱、預覽圖、追蹤代碼)— 不填也沒關係
+            </button>
+
+            {showAdvancedMapping && (
+              <div className="mal-advanced-fields">
+                {[
+                  ["campaign", "廣告活動名稱(選填)", false],
+                  ["ad", "廣告名稱(選填,填了才會顯示逐廣告明細)", false],
+                  ["image", "廣告預覽圖 / 縮圖連結(選填)", false],
+                  ["utm", "追蹤代碼 / UTM 網址參數(選填,填了會把相同 UTM 的廣告自動合併)", false],
+                ].map(([key, label]) => (
+                  <div className="mal-field" key={key}>
+                    <label>{label}</label>
+                    <select value={mapping[key] || ""} onChange={(e) => setMapping((m) => ({ ...m, [key]: e.target.value }))}>
+                      <option value="">— 不使用 —</option>
+                      {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mal-modal-actions">
+              <button className="mal-btn" onClick={() => { setStage("dashboard"); setPendingRows(null); }}>✕ 取消</button>
+              <button className="mal-btn mal-btn-primary" disabled={!mapping.date || !mapping.spend || !mapping.conversions} onClick={confirmMapping}>✓ 確認並匯入</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showApiPanel && (
+        <div className="mal-modal-overlay">
+          <div className="mal-modal mal-modal-small">
+            <h3>連接 Meta API</h3>
+            <p className="mal-modal-sub">
+              權杖不會存起來,重新整理頁面後要重新貼一次。
+            </p>
+
+            <div className="mal-field">
+              <label>模式</label>
+              <select value={apiMode} onChange={(e) => setApiMode(e.target.value)}>
+                <option value="full">直接抓整月資料(免上傳 CSV)</option>
+                <option value="thumbsOnly">只補縮圖(搭配已上傳的 CSV 資料)</option>
+              </select>
+            </div>
+
+            <div className="mal-field">
+              <label>存取權杖(Access Token)</label>
+              <input
+                type="password"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                placeholder="EAAxxxxxxxxxxxxxxxx"
+                style={{ width: "100%", padding: "8px 10px", border: "1.5px solid var(--rule)", borderRadius: "3px", fontFamily: "IBM Plex Mono, monospace", fontSize: "12px" }}
+              />
+            </div>
+            <div className="mal-field">
+              <label>廣告帳號 ID</label>
+              <input
+                type="text"
+                value={apiAccountId}
+                onChange={(e) => setApiAccountId(e.target.value)}
+                placeholder="2157995930925784 或 act_2157995930925784"
+                style={{ width: "100%", padding: "8px 10px", border: "1.5px solid var(--rule)", borderRadius: "3px", fontFamily: "IBM Plex Mono, monospace", fontSize: "12px" }}
+              />
+            </div>
+
+            {apiMode === "full" && (
+              <div className="mal-field">
+                <label>要抓哪個月?</label>
+                <input
+                  type="month"
+                  value={apiMonth}
+                  onChange={(e) => setApiMonth(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", border: "1.5px solid var(--rule)", borderRadius: "3px", fontFamily: "Inter, sans-serif", fontSize: "13px" }}
+                />
+                <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6, lineHeight: 1.5 }}>
+                  只會統計「購買」類型的轉換(訂單數與金額)。如果你的廣告目標不是導購,轉單數可能會顯示 0,這是正常的。
+                </p>
+              </div>
+            )}
+
+            <div className="mal-modal-actions">
+              <button className="mal-btn" onClick={() => setShowApiPanel(false)}>取消</button>
+              <button
+                className="mal-btn mal-btn-primary"
+                disabled={apiLoading}
+                onClick={apiMode === "full" ? fetchFullMonthFromApi : fetchThumbnailsFromApi}
+              >
+                {apiLoading ? "抓取中…" : "開始抓取"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmReset && (
+        <div className="mal-modal-overlay">
+          <div className="mal-modal mal-modal-small">
+            <h3>重置整本帳本?</h3>
+            <p className="mal-modal-sub">這會刪除所有已儲存的月份資料,無法復原。</p>
+            <div className="mal-modal-actions">
+              <button className="mal-btn" onClick={() => setConfirmReset(false)}>取消</button>
+              <button className="mal-btn mal-btn-danger" onClick={resetAll}>確認重置</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div className="mal-modal-overlay">
+          <div className="mal-modal mal-modal-small">
+            <h3>刪除 {monthLabel(confirmDelete)} 的資料?</h3>
+            <p className="mal-modal-sub">刪除後可重新上傳該月報表補回。</p>
+            <div className="mal-modal-actions">
+              <button className="mal-btn" onClick={() => setConfirmDelete(null)}>取消</button>
+              <button className="mal-btn mal-btn-danger" onClick={() => deleteMonth(confirmDelete)}>確認刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<MetaAdsLedger />);
+</script>
+</body>
+</html>
