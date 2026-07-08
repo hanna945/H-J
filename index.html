@@ -627,62 +627,6 @@ function fmtDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// ---------- 手動匯入:2026/6/29-7/5 週報表 + 2026年6月月報表(從使用者提供的截圖整理而來) ----------
-// 這兩筆資料只會在對應的儲存格「還沒有任何資料」時才寫入一次,不會覆蓋掉已經存在的真實資料
-// (例如之後改用 API 重新抓取過的同一週/同一月)。是否已經匯入過,用 SEED_GUARD_KEY 這個旗標記錄。
-const SEED_GUARD_KEY = "seed-screenshot-import-2026-06-v1";
-const SEED_WEEK_START = "2026-06-29"; // 6/29(一)-7/5(日)
-const SEED_MONTH_KEY = "2026-06";
-
-const SEED_WEEK_RECORD = {
-  spend: 39512,
-  conversions: 38,
-  revenue: 114719,
-  campaigns: 0,
-  currency: "TWD",
-  accountId: "",
-  ads: [
-    { name: "USN_0624al", utm: "USN_0624al", image: "", spend: 1719, conversions: 4, revenue: 15420, adCount: 1, rawNames: ["USN_0624al"], active: true, campaign: "【J.GAO】USN_0624al", adIds: [], startDate: null },
-    { name: "US_0428al", utm: "US_0428al", image: "", spend: 5203, conversions: 11, revenue: 27460, adCount: 1, rawNames: ["US_0428al"], active: true, campaign: "【US】US_0428al", adIds: [], startDate: null },
-    { name: "SUM_0619al", utm: "SUM_0619al", image: "", spend: 7644, conversions: 9, revenue: 33880, adCount: 1, rawNames: ["SUM_0619al"], active: true, campaign: "【J.GAO】SUM_0619al", adIds: [], startDate: null },
-    { name: "新的銷售量廣告", utm: "新的銷售量廣告", image: "", spend: 2059, conversions: 2, revenue: 8760, adCount: 1, rawNames: ["新的銷售量廣告"], active: true, campaign: "【US】新的銷售量廣告", adIds: [], startDate: null },
-    { name: "AM_0602al", utm: "AM_0602al", image: "", spend: 4386, conversions: 3, revenue: 11720, adCount: 1, rawNames: ["AM_0602al"], active: true, campaign: "【J.GAO】AM_0602al", adIds: [], startDate: null },
-    { name: "CF_0324al", utm: "CF_0324al", image: "", spend: 872, conversions: 1, revenue: 1480, adCount: 1, rawNames: ["CF_0324al"], active: true, campaign: "【J.GAO】CF_0324al", adIds: [], startDate: null },
-    { name: "US_j414_20260410", utm: "US_j414_20260410", image: "", spend: 7101, conversions: 4, revenue: 11439, adCount: 1, rawNames: ["US_j414_20260410"], active: true, campaign: "【US】US_j414_20260410", adIds: [], startDate: null },
-    { name: "TOP4_0304", utm: "TOP4_0304", image: "", spend: 2156, conversions: 2, revenue: 2100, adCount: 1, rawNames: ["TOP4_0304"], active: true, campaign: "【J.GAO】TOP4_0304", adIds: [], startDate: null },
-    { name: "新的銷售量廣告-複本", utm: "新的銷售量廣告-複本", image: "", spend: 1287, conversions: 1, revenue: 1180, adCount: 1, rawNames: ["新的銷售量廣告-複本"], active: true, campaign: "【US】新的銷售量廣告-複本", adIds: [], startDate: null },
-    { name: "SC_0613al", utm: "SC_0613al", image: "", spend: 1787, conversions: 1, revenue: 1280, adCount: 1, rawNames: ["SC_0613al"], active: true, campaign: "【J.GAO】SC_0613al", adIds: [], startDate: null },
-    { name: "Mikayla依靜_20260506", utm: "Mikayla依靜_20260506", image: "", spend: 2729, conversions: 0, revenue: 0, adCount: 1, rawNames: ["Mikayla依靜_20260506"], active: true, campaign: "【NC】Mikayla依靜_20260506", adIds: [], startDate: null },
-    { name: "OJ_0621al", utm: "OJ_0621al", image: "", spend: 959, conversions: 0, revenue: 0, adCount: 1, rawNames: ["OJ_0621al"], active: true, campaign: "【J.GAO】OJ_0621al", adIds: [], startDate: null },
-    { name: "AM_0326al", utm: "AM_0326al", image: "", spend: 736, conversions: 0, revenue: 0, adCount: 1, rawNames: ["AM_0326al"], active: true, campaign: "【J.GAO】AM_0326al", adIds: [], startDate: null },
-    { name: "USN_0617al", utm: "USN_0617al", image: "", spend: 294, conversions: 0, revenue: 0, adCount: 1, rawNames: ["USN_0617al"], active: true, campaign: "【J.GAO】USN_0617al", adIds: [], startDate: null },
-    { name: "新的銷售量廣告-複本（b）", utm: "新的銷售量廣告-複本（b）", image: "", spend: 212, conversions: 0, revenue: 0, adCount: 1, rawNames: ["新的銷售量廣告-複本（b）"], active: true, campaign: "【US】新的銷售量廣告-複本（b）", adIds: [], startDate: null },
-    { name: "USN_0628al", utm: "USN_0628al", image: "", spend: 170, conversions: 0, revenue: 0, adCount: 1, rawNames: ["USN_0628al"], active: true, campaign: "【J.GAO】USN_0628al", adIds: [], startDate: null },
-  ],
-};
-
-const SEED_MONTH_RECORD = {
-  spend: 702825,
-  conversions: 1830,
-  revenue: 7340165,
-  campaigns: 0,
-  currency: "TWD",
-  accountId: "",
-  ads: [
-    { name: "【MY】A+SC｜價值｜3件5折加碼｜6/18", utm: "MY_3件5折加碼_首波_0618", image: "", spend: 109937, conversions: 543, revenue: 2221420, adCount: 1, rawNames: ["【MY】A+SC｜價值｜3件5折加碼｜6/18"], active: true, campaign: "【MY】A+SC｜價值｜3件5折加碼｜6/18", adIds: [], startDate: null },
-    { name: "新的銷售量廣告", utm: "新的銷售量廣告", image: "", spend: 47213, conversions: 305, revenue: 1388073, adCount: 1, rawNames: ["新的銷售量廣告"], active: true, campaign: "新的銷售量廣告", adIds: [], startDate: null },
-    { name: "CF_winni_維維的生活目錄", utm: "CF_winni_維維的生活目錄", image: "", spend: 54474, conversions: 176, revenue: 710743, adCount: 1, rawNames: ["CF_winni_維維的生活目錄"], active: true, campaign: "CF_winni_維維的生活目錄", adIds: [], startDate: null },
-    { name: "【J.GAO】A+SC｜價值｜安瓶 6/16", utm: "JGAO_安瓶_0616", image: "", spend: 15401, conversions: 56, revenue: 317468, adCount: 1, rawNames: ["【J.GAO】A+SC｜價值｜安瓶 6/16"], active: true, campaign: "【J.GAO】A+SC｜價值｜安瓶 6/16", adIds: [], startDate: null },
-    { name: "【US】A+SC｜價值｜常態 6/18", utm: "US_常態_0618", image: "", spend: 9354, conversions: 26, revenue: 111570, adCount: 1, rawNames: ["【US】A+SC｜價值｜常態 6/18"], active: true, campaign: "【US】A+SC｜價值｜常態 6/18", adIds: [], startDate: null },
-    { name: "【韓捲】淨顏露｜CPA｜CF1225yc", utm: "CF1225yc", image: "", spend: 53750, conversions: 127, revenue: 396727, adCount: 1, rawNames: ["【韓捲】淨顏露｜CPA｜CF1225yc"], active: true, campaign: "【韓捲】淨顏露｜CPA｜CF1225yc", adIds: [], startDate: null },
-    { name: "【MY】A+SC｜新客｜價值｜3件5折加碼｜6/18", utm: "MY_3件5折加碼_新客_0618", image: "", spend: 46679, conversions: 115, revenue: 442515, adCount: 1, rawNames: ["【MY】A+SC｜新客｜價值｜3件5折加碼｜6/18"], active: true, campaign: "【MY】A+SC｜新客｜價值｜3件5折加碼｜6/18", adIds: [], startDate: null },
-    { name: "【J.GAO】A+SC｜價值｜常態 6/18", utm: "JGAO_常態_0618", image: "", spend: 11777, conversions: 27, revenue: 108529, adCount: 1, rawNames: ["【J.GAO】A+SC｜價值｜常態 6/18"], active: true, campaign: "【J.GAO】A+SC｜價值｜常態 6/18", adIds: [], startDate: null },
-    { name: "【US】A+SC｜價值｜高宇蒜素材 4/14", utm: "US_高宇蒜_0414", image: "", spend: 29864, conversions: 45, revenue: 131201, adCount: 1, rawNames: ["【US】A+SC｜價值｜高宇蒜素材 4/14"], active: true, campaign: "【US】A+SC｜價值｜高宇蒜素材 4/14", adIds: [], startDate: null },
-    { name: "【US】CPA+｜開發新顧客｜防曬棒 6/16", utm: "US_防曬棒_0616", image: "", spend: 4635, conversions: 8, revenue: 18140, adCount: 1, rawNames: ["【US】CPA+｜開發新顧客｜防曬棒 6/16"], active: true, campaign: "【US】CPA+｜開發新顧客｜防曬棒 6/16", adIds: [], startDate: null },
-    { name: "CM_shasha77_20260513", utm: "CM_shasha77_20260513", image: "", spend: 40878, conversions: 0, revenue: 0, adCount: 1, rawNames: ["CM_shasha77_20260513"], active: true, campaign: "CM_shasha77_20260513", adIds: [], startDate: null },
-    { name: "【NC】VD｜Mikayla依靜 6/10", utm: "NC_Mikayla依靜_0610", image: "", spend: 8299, conversions: 0, revenue: 0, adCount: 1, rawNames: ["【NC】VD｜Mikayla依靜 6/10"], active: true, campaign: "【NC】VD｜Mikayla依靜 6/10", adIds: [], startDate: null },
-  ],
-};
 // 把 Meta 回傳的投放起始時間(ISO 字串,例如 "2026-07-16T00:00:00+0800")格式化成「7/16」這種簡短格式。
 // 直接用字串前面的年月日去解析,不透過 Date 物件轉時區,避免因為瀏覽器時區不同而讓日期跑掉一天。
 function fmtStartDate(isoString) {
@@ -1248,38 +1192,6 @@ function MetaAdsLedger() {
     }
     loadInitialConfig();
   }, []);
-  useEffect(() => {
-    async function seedFromScreenshots() {
-      try {
-        const guard = await storage.get(SEED_GUARD_KEY).catch(() => null);
-        if (guard && guard.value === "done") return;
-        const weekKey = weekKeyFor("", SEED_WEEK_START);
-        const monthKey = monthKeyFor("", SEED_MONTH_KEY);
-        const [existingWeek, existingMonth] = await Promise.all([
-          storage.get(weekKey).catch(() => null),
-          storage.get(monthKey).catch(() => null),
-        ]);
-        let importedWeek = false, importedMonth = false;
-        if (!existingWeek) {
-          await storage.set(weekKey, JSON.stringify(SEED_WEEK_RECORD));
-          importedWeek = true;
-        }
-        if (!existingMonth) {
-          await storage.set(monthKey, JSON.stringify(SEED_MONTH_RECORD));
-          importedMonth = true;
-        }
-        await storage.set(SEED_GUARD_KEY, "done");
-        if (importedWeek || importedMonth) {
-          setNotice(
-            `已自動匯入截圖資料:${importedWeek ? "6/29-7/5 週報表" : ""}${importedWeek && importedMonth ? "、" : ""}${importedMonth ? "2026年6月月報表" : ""}。`
-          );
-          await loadAll("");
-          await loadAllWeeks("");
-        }
-      } catch { /* 靜默失敗即可,不影響其他功能 */ }
-    }
-    seedFromScreenshots();
-  }, []);
   useEffect(() => { loadAll(activeBrandId); }, [activeBrandId]);
   useEffect(() => { setWeekInfo(getLastWeekRange()); loadAllWeeks(activeBrandId); }, [activeBrandId]);
   useEffect(() => { loadLedger(activeBrandId); }, [activeBrandId]);
@@ -1310,12 +1222,12 @@ function MetaAdsLedger() {
     } catch { /* 背景動作,失敗不影響主要畫面 */ }
   }
 
-  // 網頁剛打開的當下,不一定已經知道「目前是哪組登入身份」(密碼可能是這次才輸入的),
-  // 所以品牌清單要在「確定連線成功、身份解析出來」之後再重新整理一次,不能只靠網頁剛打開那一瞬間的合併結果。
-  // 這份檔案的品牌本身已經靠 HARDCODED_BRANDS 鎖定顯示,這裡主要是確保「登入身份」正確解析出來,
-  // 讓帳本(metaads-ledger:)的讀寫權限判斷正確,不是拿來決定品牌清單長什麼樣子。
+  // 網頁剛打開的當下,不一定已經知道「目前是哪組登入身份」(密碼可能是這次才輸入的),身份解析出來後,
+  // 帳本(metaads-ledger:)的讀寫權限判斷才會正確——但品牌「切換選單」本身不受這個影響。
+  // 這個工具是 H&J 專屬的,即使登入的密碼身份(例如「品牌C部」)剛好也能看 Halo-Mavis、J.GAO 這些其他品牌的資料,
+  // 這裡也刻意不把它們的名字合併進選單——只鎖定顯示 HARDCODED_BRANDS 這兩個 H&J 自己的品牌,避免混進不相關的品牌。
   async function refreshBrandsAfterAuth() {
-    setBrands((prev) => mergeWithHardcodedBrands(mergeCredentialBrands(prev.filter((b) => !HARDCODED_BRANDS.some((h) => h.id === b.id)))));
+    setBrands((prev) => mergeWithHardcodedBrands(prev.filter((b) => !HARDCODED_BRANDS.some((h) => h.id === b.id))));
   }
 
   async function saveTeamKey() {
