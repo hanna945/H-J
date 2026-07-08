@@ -685,6 +685,10 @@ const HARDCODED_BRANDS = [
   { name: "H&J官網業績", id: "436280797192761" },
   { name: "H&J 一頁業績", id: "2157995930925784" },
 ];
+// 明確命名這兩個鎖定品牌的 ID,避免程式碼裡到處出現看不出意義的數字字串。
+// 官網業績的營收資料來源是 Shopline(訂單直接來自官網後台);一頁業績的營收資料來源是 Google 試算表帳本(metaads-ledger)。
+const OFFICIAL_SITE_BRAND_ID = HARDCODED_BRANDS[0].id; // H&J官網業績
+const ONEPAGE_BRAND_ID = HARDCODED_BRANDS[1].id; // H&J 一頁業績
 // 把鎖定的品牌跟使用者自己存過的品牌清單合併,鎖定的品牌一定排最前面、一定會出現,
 // 如果使用者存過同一個 id 但取了不同名字,以鎖定清單裡的名字為準(避免被改掉)。
 function mergeWithHardcodedBrands(list) {
