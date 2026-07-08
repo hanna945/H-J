@@ -2920,28 +2920,28 @@ function MetaAdsLedger() {
   }
 
   async function fetchFullMonthFromApi() {
-    if (!apiToken.trim() || !apiAccountId.trim() || !apiMonth) {
-      setApiError("請填入存取權杖、廣告帳號 ID,並選擇月份。");
+    if (!apiMonth) {
+      setApiError("請選擇月份。");
+      return;
+    }
+    if (!activeBrandId) {
+      setApiError("請先在上方選擇一個品牌。");
       return;
     }
     setApiError(null);
     setApiNotice(null);
     setApiLoading(true);
     try {
-      const cleanId = apiAccountId.trim().replace(/^act_/, "");
-      await storage.set("meta-api-account-id", cleanId).catch(() => {});
-      const record = await fetchOneBrandMonth(apiToken.trim(), cleanId, apiMonth);
-      if (!record.ads.length) {
-        setApiNotice(`${monthLabel(apiMonth)} 沒有抓到任何廣告成效資料,請確認該月份確實有花費紀錄。`);
-        setApiLoading(false);
-        return;
-      }
-      const brandIdToUse = await ensureBrandRegistered(cleanId);
-      await storage.set(monthKeyFor(brandIdToUse, apiMonth), JSON.stringify(record));
-      setActiveBrandId(brandIdToUse);
-      await loadAll(brandIdToUse);
+      const [y, m] = apiMonth.split("-").map(Number);
+      const since = `${apiMonth}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
+      const until = `${apiMonth}-${String(lastDay).padStart(2, "0")}`;
+      const record = await callMetaWorker("/api/meta/insights", { accountId: activeBrandId, since, until, relax: "false" });
+      await storage.set(monthKeyFor(activeBrandId, apiMonth), JSON.stringify(record));
+      await loadAll(activeBrandId);
       setFocusMonth(apiMonth);
-      setApiNotice(`已從 API 抓到 ${monthLabel(apiMonth)} 的資料,共 ${record.ads.length} 支廣告。`);
+      setViewMode("month");
+      setApiNotice(`已抓到 ${monthLabel(apiMonth)} 的資料,共 ${record.ads.length} 支廣告。`);
       setShowApiPanel(false);
     } catch (e) {
       setApiError("抓取失敗:" + e.message + apiErrorHint(e));
@@ -3646,18 +3646,40 @@ function MetaAdsLedger() {
           )}
 
           {focusData && (
-            <>
-              <h2 className="mal-section-title">
-                {monthLabel(focusMonth)} 一頁式正確業績(後台實際 vs Meta 回報)
-              </h2>
-              <LedgerVsMetaComparison
-                ads={filterAdsByStatus(focusData.ads, adStatusFilter)}
-                currencyCode={focusData.currency}
-                ledgerAgg={aggregateLedgerRange(ledgerByMonth, monthDateRange(focusMonth).since, monthDateRange(focusMonth).until)}
-                onOpenImport={() => setShowLedgerModal(true)}
-                periodLabel="月份"
-              />
-            </>
+            activeBrandId === OFFICIAL_SITE_BRAND_ID ? (
+              <>
+                <h2 className="mal-section-title">
+                  {monthLabel(focusMonth)} Shopline 對照(官網實際 vs Meta 回報)
+                </h2>
+                {shoplineMonthsData[focusMonth] ? (
+                  <ShoplineComparisonView
+                    record={shoplineMonthsData[focusMonth]}
+                    ads={filterAdsByStatus(focusData.ads, adStatusFilter)}
+                    currencyCode={focusData.currency}
+                  />
+                ) : (
+                  <div className="mal-empty">
+                    <p>這個月份還沒有抓取 Shopline 訂單資料,沒辦法比對官網實際業績跟 Meta 回報的落差。</p>
+                    <button className="mal-btn mal-btn-primary" disabled={shoplineLoading} onClick={() => fetchShoplineForMonth(focusMonth)}>
+                      {shoplineLoading ? "抓取中…" : "☁️ 抓取這個月的 Shopline 資料"}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h2 className="mal-section-title">
+                  {monthLabel(focusMonth)} 一頁式正確業績(後台實際 vs Meta 回報)
+                </h2>
+                <LedgerVsMetaComparison
+                  ads={filterAdsByStatus(focusData.ads, adStatusFilter)}
+                  currencyCode={focusData.currency}
+                  ledgerAgg={aggregateLedgerRange(ledgerByMonth, monthDateRange(focusMonth).since, monthDateRange(focusMonth).until)}
+                  onOpenImport={() => setShowLedgerModal(true)}
+                  periodLabel="月份"
+                />
+              </>
+            )
           )}
 
           {focusData && spendFilteredAds.length > 0 && (
@@ -3826,16 +3848,40 @@ function MetaAdsLedger() {
                   </ul>
                 </div>
 
-                <h2 className="mal-section-title">
-                  {weekLabel(focusWeek)} 一頁式正確業績(後台實際 vs Meta 回報)
-                </h2>
-                <LedgerVsMetaComparison
-                  ads={filterAdsByStatus(focusWeekData.ads, adStatusFilter)}
-                  currencyCode={focusWeekData.currency}
-                  ledgerAgg={aggregateLedgerRange(ledgerByMonth, focusWeek, addDaysISO(focusWeek, 6))}
-                  onOpenImport={() => setShowLedgerModal(true)}
-                  periodLabel="週"
-                />
+                {activeBrandId === OFFICIAL_SITE_BRAND_ID ? (
+                  <>
+                    <h2 className="mal-section-title">
+                      {weekLabel(focusWeek)} Shopline 對照(官網實際 vs Meta 回報)
+                    </h2>
+                    {shoplineWeeksData[focusWeek] ? (
+                      <ShoplineComparisonView
+                        record={shoplineWeeksData[focusWeek]}
+                        ads={filterAdsByStatus(focusWeekData.ads, adStatusFilter)}
+                        currencyCode={focusWeekData.currency}
+                      />
+                    ) : (
+                      <div className="mal-empty">
+                        <p>這一週還沒有抓取 Shopline 訂單資料,沒辦法比對官網實際業績跟 Meta 回報的落差。</p>
+                        <button className="mal-btn mal-btn-primary" disabled={shoplineLoading} onClick={() => fetchShoplineForWeek(focusWeek)}>
+                          {shoplineLoading ? "抓取中…" : "☁️ 抓取這一週的 Shopline 資料"}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <h2 className="mal-section-title">
+                      {weekLabel(focusWeek)} 一頁式正確業績(後台實際 vs Meta 回報)
+                    </h2>
+                    <LedgerVsMetaComparison
+                      ads={filterAdsByStatus(focusWeekData.ads, adStatusFilter)}
+                      currencyCode={focusWeekData.currency}
+                      ledgerAgg={aggregateLedgerRange(ledgerByMonth, focusWeek, addDaysISO(focusWeek, 6))}
+                      onOpenImport={() => setShowLedgerModal(true)}
+                      periodLabel="週"
+                    />
+                  </>
+                )}
 
                 {focusWeekData.ads && focusWeekData.ads.filter((a) => a.spend >= MIN_AD_SPEND).length > 0 && (
                   <StatusFilterButtons value={adStatusFilter} onChange={setAdStatusFilter} />
