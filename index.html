@@ -1235,6 +1235,11 @@ function MetaAdsLedger() {
   useEffect(() => { loadAll(activeBrandId); }, [activeBrandId]);
   useEffect(() => { setWeekInfo(getLastWeekRange()); loadAllWeeks(activeBrandId); }, [activeBrandId]);
   useEffect(() => { loadLedger(activeBrandId); }, [activeBrandId]);
+  // 切換品牌時,如果目前停留的分頁對新品牌來說已經不存在(例如「折價券查詢」只有官網業績才有),
+  // 自動跳回「每月報表」,避免留在一個沒有對應按鈕、內容可能是空的分頁上。
+  useEffect(() => {
+    if (viewMode === "coupon" && activeBrandId !== OFFICIAL_SITE_BRAND_ID) setViewMode("month");
+  }, [activeBrandId, viewMode]);
   useEffect(() => {
     if (HAS_SHARED_STORAGE) return; // Claude Artifact 已經有共用儲存,不需要再測 Cloudflare API
     probeCloud(true).then((status) => {
@@ -3474,7 +3479,7 @@ function MetaAdsLedger() {
               {cloudStatus === "connected" ? `☁️ ${credentialName || "已連線"}` : "🔑 每日收益表密碼"}
             </button>
           )}
-          {activeBrandId && (
+          {activeBrandId === ONEPAGE_BRAND_ID && (
             <button className="mal-btn" onClick={() => setShowLedgerModal(true)}>📥 匯入後台每日收益表</button>
           )}
           <button
@@ -3574,15 +3579,14 @@ function MetaAdsLedger() {
         <button className={`mal-viewmode-btn ${viewMode === "sponsor" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("sponsor")}>
           🎤 業配分析
         </button>
-        <button className={`mal-viewmode-btn ${viewMode === "shopline" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("shopline")}>
-          🛒 Shopline 對照
-        </button>
         <button className={`mal-viewmode-btn ${viewMode === "daily" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("daily")}>
           📆 每日報表
         </button>
-        <button className={`mal-viewmode-btn ${viewMode === "coupon" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("coupon")}>
-          🎟 折價券查詢
-        </button>
+        {activeBrandId === OFFICIAL_SITE_BRAND_ID && (
+          <button className={`mal-viewmode-btn ${viewMode === "coupon" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("coupon")}>
+            🎟 折價券查詢
+          </button>
+        )}
       </div>
 
       {viewMode === "month" && (loading ? <p style={{ color: "var(--ink-soft)" }}>載入帳本中…</p> : sortedKeys.length === 0 ? (
@@ -4095,95 +4099,9 @@ function MetaAdsLedger() {
         )
       )}
 
-      {viewMode === "shopline" && (() => {
-        const weekOptions = Object.keys(weeksData).sort().reverse();
-        const monthOptions = Object.keys(months).sort().reverse();
-        const periodOptions = shoplineGranularity === "week" ? weekOptions : monthOptions;
-        const currentAds =
-          shoplineGranularity === "week"
-            ? (weeksData[shoplineFocusPeriod] ? weeksData[shoplineFocusPeriod].ads : [])
-            : (months[shoplineFocusPeriod] ? months[shoplineFocusPeriod].ads : []);
-        const currentCurrency =
-          shoplineGranularity === "week"
-            ? (weeksData[shoplineFocusPeriod] ? weeksData[shoplineFocusPeriod].currency : currency)
-            : (months[shoplineFocusPeriod] ? months[shoplineFocusPeriod].currency : currency);
-        const shoplineRecord =
-          shoplineGranularity === "week" ? shoplineWeeksData[shoplineFocusPeriod] : shoplineMonthsData[shoplineFocusPeriod];
-
-        return (
-          <>
-            <h2 className="mal-section-title">Shopline 對照</h2>
-            <div className="mal-week-box" style={{ marginBottom: 22 }}>
-              {/* Cloudflare Worker 網址已經鎖定在程式碼裡,不顯示、不需要設定 */}
-              <div className="mal-field" style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
-                <div>
-                  <label>比對粒度</label>
-                  <select
-                    value={shoplineGranularity}
-                    onChange={(e) => { setShoplineGranularity(e.target.value); setShoplineFocusPeriod(null); }}
-                    style={{ padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px" }}
-                  >
-                    <option value="week">週報表</option>
-                    <option value="month">月報表</option>
-                  </select>
-                </div>
-                <div>
-                  <label>選擇期間</label>
-                  <select
-                    value={shoplineFocusPeriod || ""}
-                    onChange={(e) => setShoplineFocusPeriod(e.target.value)}
-                    style={{ padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px" }}
-                    disabled={periodOptions.length === 0}
-                  >
-                    {periodOptions.length === 0 && <option value="">尚無{shoplineGranularity === "week" ? "週" : "月"}報表資料</option>}
-                    {periodOptions.map((k) => (
-                      <option key={k} value={k}>{shoplineGranularity === "week" ? weekLabel(k) : monthLabel(k)}</option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  className="mal-btn mal-btn-primary"
-                  disabled={!shoplineFocusPeriod || shoplineLoading}
-                  onClick={() =>
-                    shoplineGranularity === "week"
-                      ? fetchShoplineForWeek(shoplineFocusPeriod)
-                      : fetchShoplineForMonth(shoplineFocusPeriod)
-                  }
-                >
-                  {shoplineLoading ? "抓取中…" : "🛒 抓取這段期間的 Shopline 資料"}
-                </button>
-              </div>
-              {shoplineRecord && shoplineRecord.meta && (
-                <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6 }}>
-                  已抓取:{shoplineRecord.meta.since} ~ {shoplineRecord.meta.until},共 {shoplineRecord.meta.totalOrders} 筆訂單。
-                </p>
-              )}
-            </div>
-
-            {shoplineNotice && <div className="mal-notice">✓ {shoplineNotice}</div>}
-            {shoplineError && <div className="mal-error">⚠ {shoplineError}</div>}
-
-            {!shoplineFocusPeriod ? (
-              <div className="mal-empty">
-                <div style={{ fontSize: 30 }}>🛒</div>
-                <h3 style={{ fontFamily: "'Noto Serif KR', serif", margin: "12px 0 0" }}>還沒有可以對照的期間</h3>
-                <p>請先在「每週報表」或「每月報表」抓過 Meta 廣告資料,才能選擇對應的期間來跟 Shopline 訂單對照。</p>
-              </div>
-            ) : !shoplineRecord ? (
-              <div className="mal-empty">
-                <div style={{ fontSize: 30 }}>🛒</div>
-                <h3 style={{ fontFamily: "'Noto Serif KR', serif", margin: "12px 0 0" }}>這段期間還沒有 Shopline 資料</h3>
-                <p>設定好 Worker 網址後,按上面的「抓取這段期間的 Shopline 資料」按鈕。</p>
-              </div>
-            ) : (
-              <ShoplineComparisonView record={shoplineRecord} ads={currentAds} currencyCode={currentCurrency} />
-            )}
-          </>
-        );
-      })()}
 
       {viewMode === "daily" && (
-        activeBrandId === "436280797192761" ? (
+        activeBrandId === OFFICIAL_SITE_BRAND_ID ? (
           // ---------- 官網業績:每日報表直接用 Shopline 資料,不是 Google 試算表帳本 ----------
           <>
             <div className="mal-notice" style={{ marginBottom: 18 }}>
