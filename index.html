@@ -1171,9 +1171,10 @@ function MetaAdsLedger() {
       const autoSyncOn = autoSyncRes && autoSyncRes.value === "1";
       if (autoSyncOn) setAutoSyncEnabled(true);
 
-      // 所有設定都載入完成後,才決定要不要自動同步——避免品牌清單/權杖還沒載完就搶跑,
-      // 這裡直接用剛讀到的資料(而不是 apiAccountId/brands 這兩個 state),因為 setState 不會馬上生效。
-      if (autoSyncOn && loadedToken.trim() && !autoSyncRanRef.current) {
+      // 所有設定都載入完成後,才決定要不要自動同步——避免品牌清單還沒載完就搶跑,
+      // 這裡直接用剛讀到的資料(而不是 brands 這個 state),因為 setState 不會馬上生效。
+      // 不再要求一定要有 loadedToken 才觸發——自動同步已經改用不需要貼權杖的 Worker 代理。
+      if (autoSyncOn && !autoSyncRanRef.current) {
         autoSyncRanRef.current = true;
         const loadedBrands = mergeWithHardcodedBrands(
           brandsRes && brandsRes.value
@@ -1186,8 +1187,7 @@ function MetaAdsLedger() {
               })()
             : []
         );
-        const loadedAccountId = HARDCODED_BRANDS[0].id;
-        runAutoSyncWith(loadedToken, loadedBrands, loadedAccountId);
+        runAutoSyncWith(loadedBrands);
       }
     }
     loadInitialConfig();
@@ -2997,88 +2997,80 @@ function MetaAdsLedger() {
     await storage.set("meta-api-autosync", checked ? "1" : "0").catch(() => {});
   }
 
-  // 開啟網頁時的自動同步:檢查上週(週一~週日)跟上個月的資料是否已經存在,
-  // 沒有的話就自動用記住的權杖抓一次,依序抓每個常用品牌(或預設帳號),中間間隔 4 秒避免觸發 Meta 頻率限制。
-  async function runAutoSyncWith(token, brandsList, defaultAccountId) {
-    if (!token || !token.trim()) return;
-    const cleanDefaultId = (defaultAccountId || "").trim().replace(/^act_/, "");
-    const targets = (brandsList && brandsList.length)
-      ? brandsList.map((b) => ({ apiId: b.id, storageId: b.id, name: b.name }))
-      : cleanDefaultId
-      // 已經拿掉「預設帳本」,所以這裡也不能再把資料存進看不到的地方——
-      // 沒有任何常用品牌時,直接用帳號 ID 本身當作品牌 ID 來存,並登記進品牌清單。
-      ? [{ apiId: cleanDefaultId, storageId: cleanDefaultId, name: cleanDefaultId }]
-      : [];
+  // 自動同步(網頁打開時背景觸發):改用跟「快速補3月」「快速補4週」同一套不需要貼權杖的 Worker 代理(callMetaWorker),
+  // 不再依賴使用者手動貼的 apiToken——這是之前「自動同步」實際上一直沒有真的在跑的原因(舊寫法一定要有 token 才會動,
+  // 但這個工具平常都是用免貼權杖的按鈕在抓資料,token 從來沒被設定過,自動同步一開始就直接返回)。
+  // 涵蓋範圍比照「快速補3月/快速補4週」的既有定義:近3個月 = 當月 + 前2個月;近4週 = 上週起算的前4週。
+  // 當月、當週還在累積中,所以每次都重新抓最新的(不然「更新到前一天」不會真的發生);
+  // 已經結束的月份/週,只在缺資料時才補,已經抓過的歷史資料不重複打 API,避免浪費 Meta 額度。
+  // 一天只會真的觸發一次(用本機記錄的日期比對),不管同一天內重新整理頁面幾次都不會重複抓。
+  const AUTO_SYNC_DATE_KEY = "meta-auto-sync-last-date";
+  async function runAutoSyncWith(brandsList) {
+    const targets = (brandsList && brandsList.length) ? brandsList : HARDCODED_BRANDS;
     if (!targets.length) return;
 
-    if (!brandsList || !brandsList.length) {
-      const autoBrand = { name: cleanDefaultId, id: cleanDefaultId };
-      const updatedBrands = [autoBrand];
-      setBrands(updatedBrands);
-      await storage.set("meta-api-brands", JSON.stringify(updatedBrands)).catch(() => {});
-    }
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const lastRunRes = await storage.get(AUTO_SYNC_DATE_KEY).catch(() => null);
+    if (lastRunRes && lastRunRes.value === todayStr) return; // 今天已經自動同步過了
 
-    const now = new Date();
-    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthKey = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, "0")}`;
-
-    const weekListRes = await storage.list(WEEK_STORAGE_PREFIX).catch(() => ({ keys: [] }));
-    const monthListRes = await storage.list(STORAGE_PREFIX).catch(() => ({ keys: [] }));
-    const existingWeekKeys = new Set(weekListRes.keys || []);
-    const existingMonthKeys = new Set(monthListRes.keys || []);
-
-    // 開啟網頁自動同步時,不是只補「上週」一週,而是自動檢查並補齊「最近 4 週」裡缺少的每一週——
-    // 這樣不用手動開「連接 Meta API」選「回溯抓取」,平常自動同步就會自動幫你把最近幾週補齊。
-    // 每個品牌的廣告帳號時區可能不一樣,所以每一週的日期範圍都分別依各自帳號的時區去算。
-    const AUTO_SYNC_WEEKS_BACK = 4;
-    const needsWeek = [];
-    for (const t of targets) {
-      const tzOffset = await fetchAccountUtcOffset(token.trim(), t.apiId);
-      for (let w = 1; w <= AUTO_SYNC_WEEKS_BACK; w++) {
-        const weekRange = getLastWeekRange(tzOffset, w);
-        if (!existingWeekKeys.has(weekKeyFor(t.storageId, weekRange.weekStart))) {
-          needsWeek.push({ apiId: t.apiId, storageId: t.storageId, name: t.name, weekRange });
-        }
-      }
-    }
-    const needsMonth = targets.filter((t) => !existingMonthKeys.has(monthKeyFor(t.storageId, lastMonthKey)));
-    if (!needsWeek.length && !needsMonth.length) return; // 資料都是新的,不用做任何事
-
-    setAutoSyncStatus(`自動同步中… 補齊最近 ${AUTO_SYNC_WEEKS_BACK} 週與 ${monthLabel(lastMonthKey)} 資料`);
+    const RECENT_MONTHS = 3; // 當月 + 前2個月,定義跟「快速補3月」一致
+    const RECENT_WEEKS = 4; // 上週起算的前4週,定義跟「快速補4週」一致
     let successCount = 0, errorCount = 0;
+    setAutoSyncStatus(`自動同步中… 更新近 ${RECENT_MONTHS} 個月與近 ${RECENT_WEEKS} 週資料`);
 
-    for (let i = 0; i < needsWeek.length; i++) {
-      const t = needsWeek[i];
+    for (const t of targets) {
       try {
-        const record = await fetchInsightsForRange(token.trim(), t.apiId, t.weekRange.since, t.weekRange.until, true);
-        await storage.set(weekKeyFor(t.storageId, t.weekRange.weekStart), JSON.stringify(record));
-        successCount++;
+        const tz = await callMetaWorker("/api/meta/timezone", { accountId: t.id });
+
+        // 月份:m=0 是當月,每次都重新抓;m=1、m=2 是已結束的月份,缺了才補。
+        const now = new Date();
+        for (let m = 0; m < RECENT_MONTHS; m++) {
+          const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+          const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+          if (m > 0) {
+            const existing = await storage.get(monthKeyFor(t.id, monthKey)).catch(() => null);
+            if (existing) continue; // 已結束的月份,已經抓過就跳過
+          }
+          try {
+            const since = `${monthKey}-01`;
+            const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+            const until = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
+            const record = await callMetaWorker("/api/meta/insights", { accountId: t.id, since, until, relax: "false" });
+            await storage.set(monthKeyFor(t.id, monthKey), JSON.stringify(record));
+            successCount++;
+          } catch { errorCount++; }
+          await new Promise((r) => setTimeout(r, 4000));
+        }
+
+        // 週:w=1 是上週,每次都重新抓(上週如果剛結束沒幾天,數字可能還在微調);w=2~4 缺了才補。
+        for (let w = 1; w <= RECENT_WEEKS; w++) {
+          const info = getLastWeekRange(tz.utcOffsetHours, w);
+          if (w > 1) {
+            const existing = await storage.get(weekKeyFor(t.id, info.weekStart)).catch(() => null);
+            if (existing) continue;
+          }
+          try {
+            const record = await callMetaWorker("/api/meta/insights", { accountId: t.id, since: info.since, until: info.until, relax: "true" });
+            await storage.set(weekKeyFor(t.id, info.weekStart), JSON.stringify(record));
+            successCount++;
+          } catch { errorCount++; }
+          await new Promise((r) => setTimeout(r, 4000));
+        }
       } catch { errorCount++; }
-      if (i < needsWeek.length - 1 || needsMonth.length) await new Promise((r) => setTimeout(r, 4000));
-    }
-    for (let i = 0; i < needsMonth.length; i++) {
-      const t = needsMonth[i];
-      try {
-        const record = await fetchOneBrandMonth(token.trim(), t.apiId, lastMonthKey);
-        await storage.set(monthKeyFor(t.storageId, lastMonthKey), JSON.stringify(record));
-        successCount++;
-      } catch { errorCount++; }
-      if (i < needsMonth.length - 1) await new Promise((r) => setTimeout(r, 4000));
     }
 
+    await storage.set(AUTO_SYNC_DATE_KEY, todayStr);
     setAutoSyncStatus(null);
     await loadAll(activeBrandId);
     await loadAllWeeks(activeBrandId);
     if (successCount > 0) {
-      setApiNotice(`已自動同步完成:成功更新 ${successCount} 筆資料${errorCount > 0 ? `,${errorCount} 筆失敗(可能是頻率限制,之後再手動抓一次即可)` : ""}。`);
-    } else if (errorCount > 0) {
-      setApiError("自動同步失敗,請手動連接 Meta API 重新抓取一次。");
+      setMetaUpdateNotice(`已自動同步完成:成功更新 ${successCount} 筆資料${errorCount > 0 ? `,${errorCount} 筆失敗(可能是頻率限制,之後再手動抓一次即可)` : ""}。`);
     }
   }
 
-  // 手動觸發同步(例如面板裡的「立即同步」按鈕),用目前畫面上的權杖跟品牌清單
+  // 手動觸發同步(例如面板裡的「立即同步」按鈕)
   function runAutoSync() {
-    return runAutoSyncWith(apiToken, brands, apiAccountId);
+    return runAutoSyncWith(brands.length ? brands : HARDCODED_BRANDS);
   }
 
   const sortedKeys = useMemo(() => Object.keys(months).sort(), [months]);
@@ -4222,31 +4214,28 @@ function MetaAdsLedger() {
                 <input type="checkbox" checked={rememberToken} onChange={(e) => toggleRememberToken(e.target.checked)} />
                 記住這組權杖(存在這台瀏覽器,下次開啟自動帶入)
               </label>
-              {rememberToken && (
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 400, marginTop: 6, fontSize: 12.5 }}>
-                  <input type="checkbox" checked={autoSyncEnabled} onChange={(e) => toggleAutoSync(e.target.checked)} />
-                  開啟網頁時自動檢查並補抓上週 / 上個月的資料
-                </label>
-              )}
-              {autoSyncEnabled && rememberToken && (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 400, marginTop: 6, fontSize: 12.5 }}>
+                <input type="checkbox" checked={autoSyncEnabled} onChange={(e) => toggleAutoSync(e.target.checked)} />
+                開啟網頁時自動更新近3個月/近4週資料(不需要貼權杖)
+              </label>
+              {autoSyncEnabled && (
                 <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6, lineHeight: 1.5 }}>
-                  只在打開這個網頁的當下才會檢查,不會在你沒開網頁時於背景執行。已經抓過的週/月不會重抓。
+                  只在打開這個網頁的當下才會檢查,不會在你沒開網頁時於背景執行。當月、當週每次都會重新抓最新的(更新到前一天);
+                  已經結束的月份/週,已經抓過就不會重抓。一天只會真的觸發一次,不管重新整理頁面幾次都不會重複抓。
                 </p>
               )}
             </div>
 
-            {rememberToken && (
-              <div className="mal-field">
-                <button
-                  type="button"
-                  className="mal-btn"
-                  disabled={!!autoSyncStatus}
-                  onClick={runAutoSync}
-                >
-                  {autoSyncStatus ? "同步中…" : "🔄 立即檢查並補抓上週/上月資料"}
-                </button>
-              </div>
-            )}
+            <div className="mal-field">
+              <button
+                type="button"
+                className="mal-btn"
+                disabled={!!autoSyncStatus}
+                onClick={runAutoSync}
+              >
+                {autoSyncStatus ? "同步中…" : "🔄 立即同步近3個月/近4週資料"}
+              </button>
+            </div>
 
             {apiMode !== "multi" && (
               <div className="mal-field">
