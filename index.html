@@ -1326,6 +1326,9 @@ function MetaAdsLedger() {
       await storage.set(storageKey, JSON.stringify(data));
       applyFn(data);
       setShoplineNotice(`已抓取 ${data.meta && data.meta.totalOrders != null ? data.meta.totalOrders : "0"} 筆 Shopline 訂單(${since} ~ ${until})。`);
+      // 暫時除錯用,確認原始訂單資料結構長什麼樣子,之後會拿掉:
+      console.log("【除錯】第一筆訂單原始資料:", data.orders && data.orders[0]);
+      console.log("【除錯】折扣碼摘要:", data.discountSummary);
     } catch (e) {
       setShoplineError("抓取 Shopline 資料失敗:" + e.message);
     } finally {
