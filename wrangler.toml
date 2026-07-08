@@ -12,3 +12,5 @@ id = "d283e1d9fa8f4ec1b1a64f2818649cb0"
 
 [vars]
 # TEAM_CREDENTIALS、GOOGLE_SERVICE_ACCOUNT_KEY 請到 Cloudflare Dashboard 網頁介面設定(型別選 Secret),不要寫在這裡。
+
+# touch: 觸發重新部署套用 TEAM_CREDENTIALS
