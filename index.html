@@ -199,6 +199,7 @@
   }
 
   @media print {
+    @page { size: A4; margin: 15mm; }
     body { background: #fff; padding: 0; }
     .mal-header-actions, .mal-print-btn, .mal-toggle-ads, .mal-icon-btn, .mal-tabs, .mal-brand-switch, .mal-viewmode-switch {
       display: none !important;
@@ -654,6 +655,24 @@ function getLastWeekRange(utcOffsetHours, weeksAgo = 1) {
   const fmtUtc = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
   return { since: fmtUtc(targetMonday), until: fmtUtc(targetSunday), weekStart: fmtUtc(targetMonday) };
 }
+// 把一批 Shopline 訂單(record.orders)依下單日期分組,算出每天的訂單數、原價營收、折扣金額、實收營收。
+// 官網業績(H&J官網業績)的營收本來就是 Shopline 資料,不是 Google 試算表帳本,「每日報表」對這個品牌要看這份,不是空的帳本。
+function groupShoplineOrdersByDay(orders) {
+  const byDay = {};
+  (orders || [])
+    .filter((o) => o.paymentStatus === "completed" && o.status !== "cancelled")
+    .forEach((o) => {
+      const day = (o.createdAt || "").slice(0, 10);
+      if (!day) return;
+      if (!byDay[day]) byDay[day] = { date: day, orderCount: 0, grossRevenue: 0, discountAmount: 0, netRevenue: 0 };
+      byDay[day].orderCount += 1;
+      byDay[day].grossRevenue += o.subtotal || 0;
+      byDay[day].discountAmount += o.discountAmount || 0;
+      byDay[day].netRevenue += o.amount || 0;
+    });
+  return Object.values(byDay).sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
 const LEGACY_DEFAULT_BRAND_IDS = [
   "2345685238995965",
   "1818692121940743",
@@ -1846,17 +1865,27 @@ function MetaAdsLedger() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       const { jsPDF } = window.jspdf;
 
-      // Build a single page sized to the full content's aspect ratio, so nothing
-      // gets sliced mid-row/mid-card the way fixed-height A4 pagination would.
-      const pageWidthPt = 800;
-      const pageHeightPt = (canvas.height * pageWidthPt) / canvas.width;
-      const pdf = new jsPDF({
-        orientation: pageHeightPt > pageWidthPt ? "p" : "l",
-        unit: "pt",
-        format: [pageWidthPt, pageHeightPt],
-      });
+      // 改成標準 A4(直向),內容太長就自動分頁——不是像之前那樣塞成一張自訂尺寸的超長頁面。
+      // 做法:把整份報表的截圖,依 A4 版面的高度切成好幾段,每段各自貼一頁,靠 jsPDF 頁面本身的邊界自然裁切。
+      // 已知的取捨:這是圖片式分頁,不會刻意避開資料列被硬生生切在兩頁中間的情況(要完全避免需要更複雜的版面量測邏輯,
+      // 這裡先採用業界常見的做法,大部分情況可以接受,如果切點正好卡在重要資料列中間,可以微調瀏覽器縮放比例後重新匯出試試)。
+      const A4_WIDTH_PT = 595.28;
+      const A4_HEIGHT_PT = 841.89;
+      const MARGIN_PT = 24;
+      const contentWidthPt = A4_WIDTH_PT - MARGIN_PT * 2;
+      const contentHeightPt = (canvas.height * contentWidthPt) / canvas.width; // 整份報表等比縮放到 A4 版寬後的總高度
+      const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
       const imgData = canvas.toDataURL("image/jpeg", 0.95);
-      pdf.addImage(imgData, "JPEG", 0, 0, pageWidthPt, pageHeightPt);
+
+      let renderedHeightPt = 0; // 已經畫到第幾個 pt 高度了
+      let isFirstPage = true;
+      while (renderedHeightPt < contentHeightPt) {
+        if (!isFirstPage) pdf.addPage();
+        isFirstPage = false;
+        // 用同一張完整截圖,每頁只是把它往上位移,讓 jsPDF 頁面邊界自然裁出這一頁該顯示的那一段。
+        pdf.addImage(imgData, "JPEG", MARGIN_PT, MARGIN_PT - renderedHeightPt, contentWidthPt, contentHeightPt);
+        renderedHeightPt += A4_HEIGHT_PT - MARGIN_PT * 2;
+      }
 
       const label =
         viewMode === "week"
@@ -3381,6 +3410,19 @@ function MetaAdsLedger() {
     return (couponQueryData.discountSummary || []).find((d) => String(d.code).toUpperCase() === target) || null;
   }, [couponFocusCode, couponQueryData]);
 
+  // 官網業績「每日報表」用:直接從折價券查詢那組日期範圍抓回來的 Shopline 訂單,依日期分組——
+  // 兩個分頁共用同一份查詢結果跟同一組日期選擇,不用另外重複抓一次。
+  const shoplineDailyRows = useMemo(() => groupShoplineOrdersByDay(couponQueryData && couponQueryData.orders), [couponQueryData]);
+  const shoplineDailyTotal = useMemo(
+    () => shoplineDailyRows.reduce((acc, d) => ({
+      orderCount: acc.orderCount + d.orderCount,
+      grossRevenue: acc.grossRevenue + d.grossRevenue,
+      discountAmount: acc.discountAmount + d.discountAmount,
+      netRevenue: acc.netRevenue + d.netRevenue,
+    }), { orderCount: 0, grossRevenue: 0, discountAmount: 0, netRevenue: 0 }),
+    [shoplineDailyRows]
+  );
+
   // ---------- 密碼閘:還沒驗證通過就不顯示任何報表內容 ----------
   if (isUnlocked === null) {
     return null; // 還在檢查瀏覽器有沒有記住解鎖狀態,先不顯示任何畫面,避免閃一下
@@ -4091,6 +4133,96 @@ function MetaAdsLedger() {
       })()}
 
       {viewMode === "daily" && (
+        activeBrandId === "436280797192761" ? (
+          // ---------- 官網業績:每日報表直接用 Shopline 資料,不是 Google 試算表帳本 ----------
+          <>
+            <div className="mal-notice" style={{ marginBottom: 18 }}>
+              ☁️ H&J官網業績的營收數據來自 Shopline,不是 Google 試算表——這裡直接用「折價券查詢」那組時間範圍抓回來的 Shopline 訂單,依日期整理。
+            </div>
+            <div className="mal-cards" style={{ gridTemplateColumns: "1fr 1fr auto", alignItems: "end", marginBottom: 18 }}>
+              <div className="mal-field" style={{ margin: 0 }}>
+                <label>開始日期</label>
+                <input
+                  type="date"
+                  value={couponQuerySince}
+                  onChange={(e) => setCouponQuerySince(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", fontFamily: "IBM Plex Mono, monospace", fontSize: "13px" }}
+                />
+              </div>
+              <div className="mal-field" style={{ margin: 0 }}>
+                <label>結束日期</label>
+                <input
+                  type="date"
+                  value={couponQueryUntil}
+                  onChange={(e) => setCouponQueryUntil(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", fontFamily: "IBM Plex Mono, monospace", fontSize: "13px" }}
+                />
+              </div>
+              <button className="mal-btn mal-btn-primary" disabled={couponQueryLoading} onClick={fetchCouponQueryData}>
+                {couponQueryLoading ? "查詢中…" : "🔍 查詢這段期間"}
+              </button>
+            </div>
+            {couponQueryError && <div className="mal-error">⚠ {couponQueryError}</div>}
+
+            {!couponQueryData ? (
+              <div className="mal-empty">
+                <div style={{ fontSize: 30 }}>📆</div>
+                <h3 style={{ fontFamily: "'Noto Serif KR', serif", margin: "12px 0 0" }}>選好時間範圍,按「查詢這段期間」開始</h3>
+              </div>
+            ) : shoplineDailyRows.length === 0 ? (
+              <p style={{ color: "var(--ink-soft)", fontSize: 13.5 }}>這段期間沒有已付款的 Shopline 訂單。</p>
+            ) : (
+              <>
+                <div className="mal-cards" style={{ marginBottom: 18 }}>
+                  <div className="mal-card">
+                    <div className="mal-card-label">🏬 訂單數</div>
+                    <div className="mal-card-value">{fmtInt(shoplineDailyTotal.orderCount)}</div>
+                  </div>
+                  <div className="mal-card">
+                    <div className="mal-card-label">🏬 原價營收</div>
+                    <div className="mal-card-value">{fmtMoney(shoplineDailyTotal.grossRevenue)}</div>
+                  </div>
+                  <div className="mal-card">
+                    <div className="mal-card-label">🏬 折扣金額</div>
+                    <div className="mal-card-value">{fmtMoney(shoplineDailyTotal.discountAmount)}</div>
+                  </div>
+                  <div className="mal-card">
+                    <div className="mal-card-label">🏬 實收營收</div>
+                    <div className="mal-card-value">{fmtMoney(shoplineDailyTotal.netRevenue)}</div>
+                  </div>
+                </div>
+                <h2 className="mal-section-title">
+                  每日營收明細<span className="mal-section-count">(依日期新到舊排序,{shoplineDailyRows.length} 天有訂單)</span>
+                </h2>
+                <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
+                  <table className="mal-table">
+                    <thead>
+                      <tr><th>日期</th><th>訂單數</th><th>原價營收</th><th>折扣金額</th><th>實收營收</th></tr>
+                    </thead>
+                    <tbody>
+                      {shoplineDailyRows.map((d) => (
+                        <tr key={d.date}>
+                          <td>{d.date}</td>
+                          <td>{fmtInt(d.orderCount)}</td>
+                          <td>{fmtMoney(d.grossRevenue)}</td>
+                          <td>{fmtMoney(d.discountAmount)}</td>
+                          <td>{fmtMoney(d.netRevenue)}</td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td className="mal-row-month">合計</td>
+                        <td className="mal-row-month">{fmtInt(shoplineDailyTotal.orderCount)}</td>
+                        <td className="mal-row-month">{fmtMoney(shoplineDailyTotal.grossRevenue)}</td>
+                        <td className="mal-row-month">{fmtMoney(shoplineDailyTotal.discountAmount)}</td>
+                        <td className="mal-row-month">{fmtMoney(shoplineDailyTotal.netRevenue)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        ) :
         !dailyMonthRecord && ledgerMonthKeys.length === 0 ? (
           <div className="mal-empty">
             <div style={{ fontSize: 30 }}>📆</div>
