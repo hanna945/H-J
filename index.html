@@ -1088,6 +1088,7 @@ function MetaAdsLedger() {
   const [rememberToken, setRememberToken] = useState(false);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [autoSyncStatus, setAutoSyncStatus] = useState(null);
+  const [refreshAllStatus, setRefreshAllStatus] = useState(null); // 「刷新全部」按鈕的進度文字
   const autoSyncRanRef = useRef(false);
 
   // ---------- 後台每日收益表(帳本)/ 每日報表 / 團隊密碼:state ----------
@@ -1334,14 +1335,14 @@ function MetaAdsLedger() {
 
   function fetchShoplineForWeek(weekStart) {
     const { since, until } = weekRangeForShopline(weekStart);
-    fetchShoplineData(since, until, shoplineWeekKey(weekStart), (data) => {
+    return fetchShoplineData(since, until, shoplineWeekKey(weekStart), (data) => {
       setShoplineWeeksData((prev) => ({ ...prev, [weekStart]: data }));
     });
   }
 
   function fetchShoplineForMonth(monthKey) {
     const { since, until } = monthRangeForShopline(monthKey);
-    fetchShoplineData(since, until, shoplineMonthKey(monthKey), (data) => {
+    return fetchShoplineData(since, until, shoplineMonthKey(monthKey), (data) => {
       setShoplineMonthsData((prev) => ({ ...prev, [monthKey]: data }));
     });
   }
@@ -3005,13 +3006,15 @@ function MetaAdsLedger() {
   // 已經結束的月份/週,只在缺資料時才補,已經抓過的歷史資料不重複打 API,避免浪費 Meta 額度。
   // 一天只會真的觸發一次(用本機記錄的日期比對),不管同一天內重新整理頁面幾次都不會重複抓。
   const AUTO_SYNC_DATE_KEY = "meta-auto-sync-last-date";
-  async function runAutoSyncWith(brandsList) {
+  async function runAutoSyncWith(brandsList, force = false) {
     const targets = (brandsList && brandsList.length) ? brandsList : HARDCODED_BRANDS;
     if (!targets.length) return;
 
     const todayStr = new Date().toISOString().slice(0, 10);
-    const lastRunRes = await storage.get(AUTO_SYNC_DATE_KEY).catch(() => null);
-    if (lastRunRes && lastRunRes.value === todayStr) return; // 今天已經自動同步過了
+    if (!force) {
+      const lastRunRes = await storage.get(AUTO_SYNC_DATE_KEY).catch(() => null);
+      if (lastRunRes && lastRunRes.value === todayStr) return; // 今天已經自動同步過了(手動按「刷新全部」不受這個限制)
+    }
 
     const RECENT_MONTHS = 3; // 當月 + 前2個月,定義跟「快速補3月」一致
     const RECENT_WEEKS = 4; // 上週起算的前4週,定義跟「快速補4週」一致
@@ -3071,6 +3074,65 @@ function MetaAdsLedger() {
   // 手動觸發同步(例如面板裡的「立即同步」按鈕)
   function runAutoSync() {
     return runAutoSyncWith(brands.length ? brands : HARDCODED_BRANDS);
+  }
+
+  // 直接呼叫 /api/sheets/sync(不是 /api/sheets/auto),指定明確的 accountId——
+  // 跟登入自動觸發的每日同步用同一支後端 API,但這支沒有「一天一次」的限制,手動按永遠會真的去抓一次最新的。
+  // sheetId 留空,後端會自動沿用這個品牌上次記住的試算表 ID,不用重新貼一次。
+  async function syncLedgerForAccount(accountId) {
+    const res = await fetch(`/api/sheets/sync`, {
+      method: "POST",
+      headers: { ...teamKeyHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId, sheetId: "", year: Number(ledgerYear) }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    if (accountId === activeBrandId) await loadLedger(activeBrandId);
+    return json;
+  }
+
+  // 一鍵刷新全部資料來源:①官網+一頁廣告成效(Meta,近3個月+近4週)②Shopline 訂單(近3個月+近4週)
+  // ③一頁業績的每日收益表(Google 試算表)。依序執行(不是同時打,避免太多請求一起打向 Meta/Shopline 觸發頻率限制),
+  // 手動點的動作,不受背景自動同步「一天一次」的限制,想刷新隨時可以按。任一項目失敗不會擋住其他項目繼續執行。
+  async function refreshAllData() {
+    setRefreshAllStatus("整理中… 官網 / 一頁廣告成效");
+    let metaOk = true;
+    try {
+      await runAutoSyncWith(HARDCODED_BRANDS, true);
+    } catch { metaOk = false; }
+
+    setRefreshAllStatus("整理中… Shopline 訂單");
+    let shoplineOk = true;
+    try {
+      const RECENT_MONTHS = 3;
+      const RECENT_WEEKS = 4;
+      const now = new Date();
+      for (let m = 0; m < RECENT_MONTHS; m++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        try { await fetchShoplineForMonth(monthKey); } catch {}
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      for (let w = 1; w <= RECENT_WEEKS; w++) {
+        const { weekStart } = getLastWeekRange(8, w); // Shopline 不分品牌,固定用台灣時區(UTC+8)算週界
+        try { await fetchShoplineForWeek(weekStart); } catch {}
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    } catch { shoplineOk = false; }
+
+    setRefreshAllStatus("整理中… 每日收益表(Google 試算表)");
+    let ledgerOk = true;
+    try {
+      await syncLedgerForAccount("2157995930925784"); // H&J 一頁業績
+    } catch { ledgerOk = false; }
+
+    setRefreshAllStatus(null);
+    const failedParts = [!metaOk && "廣告成效", !shoplineOk && "Shopline 訂單", !ledgerOk && "每日收益表"].filter(Boolean);
+    setApiNotice(
+      failedParts.length
+        ? `刷新完成,但有部分失敗(${failedParts.join("、")}),可以再按一次或個別手動重試。`
+        : "已完成刷新全部資料:官網/一頁廣告成效、Shopline 訂單、每日收益表都是最新的。"
+    );
   }
 
   const sortedKeys = useMemo(() => Object.keys(months).sort(), [months]);
@@ -3330,6 +3392,14 @@ function MetaAdsLedger() {
           >
             {quickBatchLoading === "weeks" ? "補齊中…" : "🚀 快速補4週"}
           </button>
+          <button
+            className="mal-btn"
+            style={{ background: "linear-gradient(135deg, #3C3733, #6E8577)", color: "#fff", borderColor: "#3C3733", fontWeight: 600 }}
+            disabled={!!refreshAllStatus}
+            onClick={refreshAllData}
+          >
+            {refreshAllStatus ? "刷新中…" : "🔄 刷新全部(廣告+Shopline+每日營收)"}
+          </button>
           {(sortedKeys.length > 0 || sortedWeekKeys.length > 0) && (
             <button className="mal-btn mal-print-btn" onClick={handlePrintClick}>🖨 列印</button>
           )}
@@ -3374,6 +3444,7 @@ function MetaAdsLedger() {
       {apiNotice && <div className="mal-notice">✓ {apiNotice}</div>}
       {metaUpdateNotice && <div className="mal-notice">✓ {metaUpdateNotice}</div>}
       {autoSyncStatus && <div className="mal-notice">⏳ {autoSyncStatus}</div>}
+      {refreshAllStatus && <div className="mal-notice">⏳ {refreshAllStatus}</div>}
       {error && <div className="mal-error">⚠ {error}</div>}
       {apiError && <div className="mal-error">⚠ {apiError}</div>}
       {metaUpdateError && <div className="mal-error">⚠ {metaUpdateError}</div>}
