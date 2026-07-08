@@ -1,0 +1,14 @@
+# 這個檔案是給想用 wrangler CLI 部署的人用的,非必要。
+# 如果你是用 Cloudflare Dashboard 網頁介面或 Git 連動部署,KV 綁定會直接讀這個檔案自動套用。
+# 這裡刻意跟 speedingscs 用同一個 KV 命名空間 ID,兩邊資料庫是同一份,「每日收益表」帳本資料互通。
+
+name = "hj-brand-report"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "."
+
+[[kv_namespaces]]
+binding = "REPORT_KV"
+id = "d283e1d9fa8f4ec1b1a64f2818649cb0"
+
+[vars]
+# TEAM_CREDENTIALS、GOOGLE_SERVICE_ACCOUNT_KEY 請到 Cloudflare Dashboard 網頁介面設定(型別選 Secret),不要寫在這裡。
