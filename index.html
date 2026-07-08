@@ -3431,40 +3431,15 @@ function MetaAdsLedger() {
           {activeBrandId && (
             <button className="mal-btn" onClick={() => setShowLedgerModal(true)}>📥 匯入後台每日收益表</button>
           )}
-          <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "week"} onClick={updateLastWeek}>
-            {metaUpdateLoading === "week"
-              ? "更新中…"
-              : `🔄 更新上週資料${(brands.find((b) => b.id === activeBrandId) || {}).name ? "(" + brands.find((b) => b.id === activeBrandId).name + ")" : ""}`}
-          </button>
-          <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "month"} onClick={updateThisMonth}>
-            {metaUpdateLoading === "month"
-              ? "更新中…"
-              : `🔄 更新本月資料${(brands.find((b) => b.id === activeBrandId) || {}).name ? "(" + brands.find((b) => b.id === activeBrandId).name + ")" : ""}`}
-          </button>
-          <button 
-            className="mal-btn" 
-            style={{ background: "linear-gradient(135deg, #7C8B54, #BFA054)", color: "#fff", borderColor: "#7C8B54", fontWeight: 600 }}
-            disabled={quickBatchLoading === "months"}
-            onClick={() => quickFetchRecentMonths(3)}
-          >
-            {quickBatchLoading === "months" ? "補齊中…" : "🚀 快速補3月"}
-          </button>
-          <button 
-            className="mal-btn" 
-            style={{ background: "linear-gradient(135deg, #6E8577, #7C8B54)", color: "#fff", borderColor: "#6E8577", fontWeight: 600 }}
-            disabled={quickBatchLoading === "weeks"}
-            onClick={() => quickFetchRecentWeeks(4)}
-          >
-            {quickBatchLoading === "weeks" ? "補齊中…" : "🚀 快速補4週"}
-          </button>
           <button
             className="mal-btn"
             style={{ background: "linear-gradient(135deg, #3C3733, #6E8577)", color: "#fff", borderColor: "#3C3733", fontWeight: 600 }}
             disabled={!!refreshAllStatus}
             onClick={refreshAllData}
           >
-            {refreshAllStatus ? "刷新中…" : "🔄 刷新全部(廣告+Shopline+每日營收)"}
+            {refreshAllStatus ? "刷新中…" : "🔄 一鍵更新全部(廣告+Shopline+每日營收)"}
           </button>
+          <button className="mal-btn" onClick={() => setShowApiPanel(true)}>🔌 手動選期間更新</button>
           {(sortedKeys.length > 0 || sortedWeekKeys.length > 0) && (
             <button className="mal-btn mal-print-btn" onClick={handlePrintClick}>🖨 列印</button>
           )}
