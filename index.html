@@ -3367,7 +3367,7 @@ function MetaAdsLedger() {
             </button>
           )}
           {activeBrandId === ONEPAGE_BRAND_ID && (
-            <button className="mal-btn" onClick={() => setShowLedgerModal(true)}>📥 匯入後台每日收益表</button>
+            <span style={{ fontSize: 11.5, color: "var(--ink-soft)", alignSelf: "center" }}>每日收益表已自動同步,不需要手動匯入</span>
           )}
           <button
             className="mal-btn"
@@ -3428,20 +3428,20 @@ function MetaAdsLedger() {
       {metaUpdateError && <div className="mal-error">⚠ {metaUpdateError}</div>}
 
       <div className="mal-viewmode-switch">
-        <button className={`mal-viewmode-btn ${viewMode === "month" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("month")}>
-          📅 每月報表
+        <button className={`mal-viewmode-btn ${viewMode === "daily" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("daily")}>
+          📆 每日報表
         </button>
         <button className={`mal-viewmode-btn ${viewMode === "week" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("week")}>
           🗓 每週報表
+        </button>
+        <button className={`mal-viewmode-btn ${viewMode === "month" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("month")}>
+          📅 每月報表
         </button>
         <button className={`mal-viewmode-btn ${viewMode === "insight" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("insight")}>
           📦 業績比例分析
         </button>
         <button className={`mal-viewmode-btn ${viewMode === "sponsor" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("sponsor")}>
           🎤 業配分析
-        </button>
-        <button className={`mal-viewmode-btn ${viewMode === "daily" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("daily")}>
-          📆 每日報表
         </button>
         {activeBrandId === OFFICIAL_SITE_BRAND_ID && (
           <button className={`mal-viewmode-btn ${viewMode === "coupon" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("coupon")}>
