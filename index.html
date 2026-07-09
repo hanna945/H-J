@@ -414,7 +414,7 @@ const LEDGER_STORAGE_PREFIX = "metaads-ledger:";
 function ledgerKeyFor(brandId, monthKey) {
   return LEDGER_STORAGE_PREFIX + (brandId ? brandId + "::" : "") + monthKey;
 }
-const SHARED_PREFIXES = [LEDGER_STORAGE_PREFIX]; // 只有帳本(每日收益表)共用,metaads-month/week(廣告成效)刻意不放進來
+const SHARED_PREFIXES = [LEDGER_STORAGE_PREFIX]; // Shopline 前綴稍後宣告完再併入(見下方 SHOPLINE_WEEK_PREFIX/SHOPLINE_MONTH_PREFIX 之後)
 function isSharedKey(key) {
   if (SHARED_EXACT_KEYS.has(key)) return true;
   return SHARED_PREFIXES.some((p) => key.startsWith(p));
@@ -562,6 +562,9 @@ function aggregateLedgerRange(ledgerByMonth, sinceISO, untilISO) {
 const SHOPLINE_WORKER_URL_KEY = "shopline-worker-url";
 const SHOPLINE_WEEK_PREFIX = "shopline-week:";
 const SHOPLINE_MONTH_PREFIX = "shopline-month:";
+// Shopline 週/月資料併入共用範圍,這樣排程 Worker 背景抓回來寫進共用資料庫的資料,網頁打開就能直接讀到,
+// 不用等使用者自己在瀏覽器裡按一次抓取。SHARED_PREFIXES 在更前面已經用 const 宣告過,這裡用 push 而不是重新賦值。
+SHARED_PREFIXES.push(SHOPLINE_WEEK_PREFIX, SHOPLINE_MONTH_PREFIX);
 function shoplineWeekKey(weekStart) {
   return SHOPLINE_WEEK_PREFIX + weekStart;
 }
