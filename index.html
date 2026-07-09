@@ -1554,119 +1554,6 @@ function MetaAdsLedger() {
     }
   }
 
-  // ---------- 快速補3個月 / 快速補4週:透過 Worker 代理,不需要使用者輸入權杖 ----------
-  // 跟「更新上週資料」「更新本月資料」用同一套 callMetaWorker 機制,只是一次補多個期間,
-  // 每抓完一個期間會間隔 4 秒再抓下一個,避免觸發 Meta 頻率限制。
-  const [quickBatchLoading, setQuickBatchLoading] = useState(null); // null | "months" | "weeks"
-  const [quickBatchProgress, setQuickBatchProgress] = useState(null);
-
-  async function quickFetchRecentMonths(monthsCount = 3) {
-    if (!activeBrandId) {
-      setMetaUpdateError("請先選擇一個品牌。");
-      return;
-    }
-    setQuickBatchLoading("months");
-    setMetaUpdateError(null);
-    setMetaUpdateNotice(null);
-
-    const now = new Date();
-    const monthsToFetch = [];
-    for (let m = 0; m < monthsCount; m++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
-      monthsToFetch.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-    }
-    monthsToFetch.reverse(); // 從最早的月開始抓
-
-    const progress = monthsToFetch.map((mk) => ({ id: mk, name: monthLabel(mk), status: "pending", message: "" }));
-    setQuickBatchProgress(progress);
-
-    let successCount = 0, errorCount = 0, lastMonthKey = null;
-    for (let i = 0; i < monthsToFetch.length; i++) {
-      const monthKey = monthsToFetch[i];
-      setQuickBatchProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "running" } : p)));
-      try {
-        const [y, m] = monthKey.split("-").map(Number);
-        const since = `${monthKey}-01`;
-        const lastDay = new Date(y, m, 0).getDate();
-        const until = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
-        const record = await callMetaWorker("/api/meta/insights", {
-          accountId: activeBrandId,
-          since,
-          until,
-          relax: "false",
-        });
-        await storage.set(monthKeyFor(activeBrandId, monthKey), JSON.stringify(record));
-        successCount++;
-        lastMonthKey = monthKey;
-        setQuickBatchProgress((prev) =>
-          prev.map((p, idx) => (idx === i ? { ...p, status: record.ads.length ? "done" : "empty", message: `${record.ads.length} 支廣告` } : p))
-        );
-      } catch (e) {
-        errorCount++;
-        setQuickBatchProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error", message: friendlyMetaError(e) } : p)));
-      }
-      if (i < monthsToFetch.length - 1) await new Promise((r) => setTimeout(r, 4000));
-    }
-
-    await loadAll(activeBrandId);
-    if (lastMonthKey) setFocusMonth(lastMonthKey);
-    setMetaUpdateNotice(`已自動更新前 ${monthsCount} 個月:成功 ${successCount} 個月${errorCount > 0 ? `,失敗 ${errorCount} 個月` : ""}。`);
-    setQuickBatchLoading(null);
-  }
-
-  async function quickFetchRecentWeeks(weeksCount = 4) {
-    if (!activeBrandId) {
-      setMetaUpdateError("請先選擇一個品牌。");
-      return;
-    }
-    setQuickBatchLoading("weeks");
-    setMetaUpdateError(null);
-    setMetaUpdateNotice(null);
-
-    try {
-      const tz = await callMetaWorker("/api/meta/timezone", { accountId: activeBrandId });
-      const progress = [];
-      for (let w = 1; w <= weeksCount; w++) {
-        const info = getLastWeekRange(tz.utcOffsetHours, w);
-        progress.push({ id: "w" + w, name: `${info.since} ~ ${info.until}`, status: "pending", message: "" });
-      }
-      setQuickBatchProgress(progress);
-
-      let successCount = 0, errorCount = 0, mostRecentInfo = null;
-      for (let w = 1; w <= weeksCount; w++) {
-        setQuickBatchProgress((prev) => prev.map((p, idx) => (idx === w - 1 ? { ...p, status: "running" } : p)));
-        try {
-          const info = getLastWeekRange(tz.utcOffsetHours, w);
-          const record = await callMetaWorker("/api/meta/insights", {
-            accountId: activeBrandId,
-            since: info.since,
-            until: info.until,
-            relax: "true",
-          });
-          await storage.set(weekKeyFor(activeBrandId, info.weekStart), JSON.stringify(record));
-          successCount++;
-          if (w === 1) mostRecentInfo = info; // w=1 是「上週」,也就是最新的一週
-          setQuickBatchProgress((prev) =>
-            prev.map((p, idx) => (idx === w - 1 ? { ...p, status: record.ads.length ? "done" : "empty", message: `${record.ads.length} 支廣告` } : p))
-          );
-        } catch (e) {
-          errorCount++;
-          setQuickBatchProgress((prev) => prev.map((p, idx) => (idx === w - 1 ? { ...p, status: "error", message: friendlyMetaError(e) } : p)));
-        }
-        if (w < weeksCount) await new Promise((r) => setTimeout(r, 4000));
-      }
-
-      if (mostRecentInfo) setWeekInfo(mostRecentInfo);
-      await loadAllWeeks(activeBrandId);
-      setViewMode("week");
-      setMetaUpdateNotice(`已自動更新過去 ${weeksCount} 週:成功 ${successCount} 週${errorCount > 0 ? `,失敗 ${errorCount} 週` : ""}。`);
-    } catch (e) {
-      setMetaUpdateError(friendlyMetaError(e));
-    } finally {
-      setQuickBatchLoading(null);
-    }
-  }
-
   async function loadAllWeeks(brandId) {
     try {
       const listRes = await storage.list(WEEK_STORAGE_PREFIX);
@@ -3212,7 +3099,7 @@ function MetaAdsLedger() {
     setRefreshAllStatus("整理中… 每日收益表(Google 試算表)");
     let ledgerOk = true;
     try {
-      await syncLedgerForAccount("2157995930925784"); // H&J 一頁業績
+      await syncLedgerForAccount(ONEPAGE_BRAND_ID); // H&J 一頁業績
     } catch { ledgerOk = false; }
 
     setRefreshAllStatus(null);
@@ -3539,32 +3426,6 @@ function MetaAdsLedger() {
       {error && <div className="mal-error">⚠ {error}</div>}
       {apiError && <div className="mal-error">⚠ {apiError}</div>}
       {metaUpdateError && <div className="mal-error">⚠ {metaUpdateError}</div>}
-
-      {quickBatchProgress && (
-        <div style={{ border: "1px solid var(--rule)", borderRadius: "14px", padding: "14px 16px", marginBottom: 20, background: "var(--paper-raised)" }}>
-          <div style={{ fontFamily: "'Noto Serif KR', serif", fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
-            {quickBatchLoading === "months" ? "🚀 正在補齊月報表…" : quickBatchLoading === "weeks" ? "🚀 正在補齊週報表…" : "補齊完成"}
-          </div>
-          {quickBatchProgress.map((p) => (
-            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "5px 0", borderBottom: "1px solid var(--rule)" }}>
-              <span>{p.name}</span>
-              <span style={{
-                color: p.status === "error" ? "var(--red)" : p.status === "done" ? "var(--green)" : "var(--ink-soft)",
-                fontFamily: "IBM Plex Mono, monospace",
-              }}>
-                {p.status === "pending" && "等待中"}
-                {p.status === "running" && "抓取中…"}
-                {p.status === "done" && `✓ ${p.message}`}
-                {p.status === "empty" && "沒有資料"}
-                {p.status === "error" && `✗ ${p.message}`}
-              </span>
-            </div>
-          ))}
-          {!quickBatchLoading && (
-            <button className="mal-btn" style={{ marginTop: 10, fontSize: 12 }} onClick={() => setQuickBatchProgress(null)}>關閉</button>
-          )}
-        </div>
-      )}
 
       <div className="mal-viewmode-switch">
         <button className={`mal-viewmode-btn ${viewMode === "month" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("month")}>
