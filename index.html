@@ -1142,8 +1142,6 @@ function MetaAdsLedger() {
   const [shoplineLoading, setShoplineLoading] = useState(false);
   const [shoplineError, setShoplineError] = useState(null);
   const [shoplineNotice, setShoplineNotice] = useState(null);
-  const [shoplineGranularity, setShoplineGranularity] = useState("week"); // "week" | "month"
-  const [shoplineFocusPeriod, setShoplineFocusPeriod] = useState(null); // weekStart 或 monthKey
 
   // ---------- 折價券查詢:state(自訂時間範圍,不綁定週/月的固定區間)----------
   const [couponQuerySince, setCouponQuerySince] = useState(() => {
@@ -1322,17 +1320,6 @@ function MetaAdsLedger() {
     }
     loadShopline();
   }, []);
-
-  // 每次切到 Shopline 分頁,或週/月報表的資料有更新時,預設帶入「最新一期」方便直接比對
-  useEffect(() => {
-    if (shoplineGranularity === "week") {
-      const sorted = Object.keys(weeksData).sort();
-      if (sorted.length && !shoplineFocusPeriod) setShoplineFocusPeriod(sorted[sorted.length - 1]);
-    } else {
-      const sorted = Object.keys(months).sort();
-      if (sorted.length && !shoplineFocusPeriod) setShoplineFocusPeriod(sorted[sorted.length - 1]);
-    }
-  }, [shoplineGranularity, weeksData, months]);
 
   async function saveShoplineWorkerUrl() {
     const trimmed = shoplineWorkerUrlInput.trim().replace(/\/$/, "");
@@ -3086,11 +3073,13 @@ function MetaAdsLedger() {
       for (let m = 0; m < RECENT_MONTHS; m++) {
         const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
         const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        if (m > 0 && shoplineMonthsData[monthKey]) continue; // 已結束的月份,之前抓過就不重抓
         try { await fetchShoplineForMonth(monthKey); } catch {}
         await new Promise((r) => setTimeout(r, 1500));
       }
       for (let w = 1; w <= RECENT_WEEKS; w++) {
         const { weekStart } = getLastWeekRange(8, w); // Shopline 不分品牌,固定用台灣時區(UTC+8)算週界
+        if (w > 1 && shoplineWeeksData[weekStart]) continue; // 已結束的週,之前抓過就不重抓
         try { await fetchShoplineForWeek(weekStart); } catch {}
         await new Promise((r) => setTimeout(r, 1500));
       }
