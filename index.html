@@ -124,6 +124,19 @@
   }
   .mal-ledger-table thead th:first-child { z-index: 2; }
   .mal-ledger-table tr:hover td:first-child { background: #F7F2EA; }
+  /* 寬表格的捲動容器:滾輪已經可以直接左右捲(見上面的 wheel 事件代理),這裡把捲軸本身加粗、
+     常駐顯示、上色,讓「這裡可以往右滑」在視覺上更明顯,不用滑到底部細細一條才發現。 */
+  .mal-scroll-wrap { scrollbar-width: auto; scrollbar-color: var(--blue) var(--rule); padding-bottom: 4px; }
+  .mal-scroll-wrap::-webkit-scrollbar { height: 11px; }
+  .mal-scroll-wrap::-webkit-scrollbar-track { background: var(--rule); border-radius: 999px; }
+  .mal-scroll-wrap::-webkit-scrollbar-thumb { background: var(--blue); border-radius: 999px; border: 2px solid var(--rule); }
+  /* 矩陣表格裡,每個產品代號區塊(4欄一組:營收/廣告費/廣告費佔比/淨利潤)交替上底色,
+     跟相鄰的代號區塊、以及跟最左邊的「全店」區塊都要能一眼分辨,滑動時才不會看錯欄位屬於哪個代號。 */
+  .mal-matrix-group-a { background: #E9F1EC; }
+  .mal-matrix-group-b { background: #F5EAEE; }
+  .mal-matrix-group-a-label { color: #3F6355; }
+  .mal-matrix-group-b-label { color: #8A4A5E; }
+  .mal-matrix-group-start { border-left: 2.5px solid var(--ink) !important; }
   .mal-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; font-size: 14px; }
   .mal-icon-btn:hover { color: var(--red); }
   .mal-ad-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
@@ -1062,6 +1075,25 @@ function MetaAdsLedger() {
       .get(SITE_UNLOCK_KEY)
       .then((res) => setIsUnlocked(!!(res && res.value === "1")))
       .catch(() => setIsUnlocked(false));
+  }, []);
+
+  // 寬表格(.mal-scroll-wrap,矩陣總覽/各種明細表都會用到)在滑鼠垂直滾輪 + 沒有觸控板的情況下很難左右捲動,
+  // 只能用底部細細的捲軸慢慢拖。這裡用「事件代理」在最外層攔截滾輪事件:滑鼠停在寬表格上方、
+  // 而且這個表格「真的超出可視寬度需要捲動」時,把垂直滾動量直接轉成水平捲動。
+  // 用 document 代理而不是各自綁定,是因為這些表格會隨頁籤/報表模式切換而重新掛載、卸載,
+  // 綁在 document 上一次就對「現在存在的」跟「之後才出現的」表格都有效,不用每個表格各寫一次。
+  // 觸控板的左右滑動手勢本來就是 deltaX 為主,這裡只接管「以垂直滾動為主」的輸入(一般滑鼠滾輪),
+  // 觸控板手勢維持瀏覽器原生行為,不會互相干擾。
+  useEffect(() => {
+    function handleWheel(e) {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const wrap = e.target.closest(".mal-scroll-wrap");
+      if (!wrap || wrap.scrollWidth <= wrap.clientWidth) return;
+      wrap.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+    document.addEventListener("wheel", handleWheel, { passive: false });
+    return () => document.removeEventListener("wheel", handleWheel);
   }, []);
 
   function handleUnlock(e) {
@@ -4238,8 +4270,15 @@ function MetaAdsLedger() {
                       <tr>
                         <th rowSpan={2} style={{ verticalAlign: "bottom" }}>日期</th>
                         <th colSpan={4} className="mal-ledger-group-backend mal-ledger-group-label-backend" style={{ textAlign: "center" }}>🏬 全店</th>
-                        {dailyMatrixCodes.map((code) => (
-                          <th key={code} colSpan={4} style={{ textAlign: "center" }}>{code}</th>
+                        {dailyMatrixCodes.map((code, i) => (
+                          <th
+                            key={code}
+                            colSpan={4}
+                            className={`mal-matrix-group-${i % 2 === 0 ? "a" : "b"} mal-matrix-group-${i % 2 === 0 ? "a" : "b"}-label mal-matrix-group-start`}
+                            style={{ textAlign: "center" }}
+                          >
+                            {code}
+                          </th>
                         ))}
                       </tr>
                       <tr>
@@ -4247,11 +4286,17 @@ function MetaAdsLedger() {
                         <th className="mal-ledger-group-backend">廣告費</th>
                         <th className="mal-ledger-group-backend">廣告費佔比</th>
                         <th className="mal-ledger-group-backend">淨利潤</th>
-                        {dailyMatrixCodes.map((code) => (
-                          <React.Fragment key={code}>
-                            <th>營收</th><th>廣告費</th><th>廣告費佔比</th><th>淨利潤</th>
-                          </React.Fragment>
-                        ))}
+                        {dailyMatrixCodes.map((code, i) => {
+                          const tone = `mal-matrix-group-${i % 2 === 0 ? "a" : "b"}`;
+                          return (
+                            <React.Fragment key={code}>
+                              <th className={`${tone} mal-matrix-group-start`}>營收</th>
+                              <th className={tone}>廣告費</th>
+                              <th className={tone}>廣告費佔比</th>
+                              <th className={tone}>淨利潤</th>
+                            </React.Fragment>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
@@ -4262,14 +4307,15 @@ function MetaAdsLedger() {
                           <td className="mal-ledger-group-backend">{fmtMoney(d.overall.adSpend)}</td>
                           <td className="mal-ledger-group-backend">{adPct(d.overall.adSpend, d.overall.revenue, adRatioThresholds[activeBrandId])}</td>
                           <td className="mal-ledger-group-backend">{netProfitCell(d.overall.netProfit)}</td>
-                          {dailyMatrixCodes.map((code) => {
+                          {dailyMatrixCodes.map((code, i) => {
                             const v = d.byCode[code];
+                            const tone = `mal-matrix-group-${i % 2 === 0 ? "a" : "b"}`;
                             return (
                               <React.Fragment key={code}>
-                                <td>{v ? fmtMoney(v.revenue) : "—"}</td>
-                                <td>{v ? fmtMoney(v.spend) : "—"}</td>
-                                <td>{v ? adPct(v.spend, v.revenue, adRatioThresholds[activeBrandId]) : "—"}</td>
-                                <td>{v ? netProfitCell(v.netProfit) : "—"}</td>
+                                <td className={`${tone} mal-matrix-group-start`}>{v ? fmtMoney(v.revenue) : "—"}</td>
+                                <td className={tone}>{v ? fmtMoney(v.spend) : "—"}</td>
+                                <td className={tone}>{v ? adPct(v.spend, v.revenue, adRatioThresholds[activeBrandId]) : "—"}</td>
+                                <td className={tone}>{v ? netProfitCell(v.netProfit) : "—"}</td>
                               </React.Fragment>
                             );
                           })}
@@ -4282,14 +4328,15 @@ function MetaAdsLedger() {
                           <td className="mal-ledger-group-backend mal-row-month">{fmtMoney(dailyMonthRecord.monthTotal.overall.adSpend)}</td>
                           <td className="mal-ledger-group-backend mal-row-month">{adPct(dailyMonthRecord.monthTotal.overall.adSpend, dailyMonthRecord.monthTotal.overall.revenue, adRatioThresholds[activeBrandId])}</td>
                           <td className="mal-ledger-group-backend mal-row-month">{netProfitCell(dailyMonthRecord.monthTotal.overall.netProfit)}</td>
-                          {dailyMatrixCodes.map((code) => {
+                          {dailyMatrixCodes.map((code, i) => {
                             const v = dailyMonthRecord.monthTotal.byCode[code];
+                            const tone = `mal-matrix-group-${i % 2 === 0 ? "a" : "b"}`;
                             return (
                               <React.Fragment key={code}>
-                                <td className="mal-row-month">{v ? fmtMoney(v.revenue) : "—"}</td>
-                                <td className="mal-row-month">{v ? fmtMoney(v.spend) : "—"}</td>
-                                <td className="mal-row-month">{v ? adPct(v.spend, v.revenue, adRatioThresholds[activeBrandId]) : "—"}</td>
-                                <td className="mal-row-month">{v ? netProfitCell(v.netProfit) : "—"}</td>
+                                <td className={`${tone} mal-matrix-group-start mal-row-month`}>{v ? fmtMoney(v.revenue) : "—"}</td>
+                                <td className={`${tone} mal-row-month`}>{v ? fmtMoney(v.spend) : "—"}</td>
+                                <td className={`${tone} mal-row-month`}>{v ? adPct(v.spend, v.revenue, adRatioThresholds[activeBrandId]) : "—"}</td>
+                                <td className={`${tone} mal-row-month`}>{v ? netProfitCell(v.netProfit) : "—"}</td>
                               </React.Fragment>
                             );
                           })}
