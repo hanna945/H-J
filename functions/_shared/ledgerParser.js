@@ -1,7 +1,8 @@
 // 跟 index.html 裡「後台每日收益表(.xlsx)解析」那段邏輯完全一致(逐字同步過來),
 // 只是抽成獨立檔案,讓 /api/sheets/sync.js 這支 Function 也能用同一套規則解析 Google Sheet 抓回來的資料,
 // 不用另外寫一份、也不用擔心兩邊邏輯之後跑掉不一致。
-// 如果之後 index.html 裡這段邏輯有調整(例如欄位寬度、起始欄變了),這裡也要跟著手動同步更新。
+// 如果之後 index.html 裡這段邏輯有調整(例如欄位寬度、起始欄變了),這裡跟 brand-report-cron-sync/src/ledgerParser.js
+// 也要跟著手動同步更新——三份是否一致,可以用 tools/check-ledger-parser-sync.js 檢查。
 
 export const LEDGER_PRODUCT_BLOCK_START_COL = 19; // 從 T 欄(0-indexed 19)開始才是「產品代號」區塊
 export const LEDGER_MONTH_SHEET_RE = /^(\d{1,2})\s*月/;
