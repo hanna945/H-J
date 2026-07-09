@@ -1214,18 +1214,9 @@ function MetaAdsLedger() {
       // 不再要求一定要有 loadedToken 才觸發——自動同步已經改用不需要貼權杖的 Worker 代理。
       if (autoSyncOn && !autoSyncRanRef.current) {
         autoSyncRanRef.current = true;
-        const loadedBrands = mergeWithHardcodedBrands(
-          brandsRes && brandsRes.value
-            ? (() => {
-                try {
-                  return JSON.parse(brandsRes.value).filter((b) => !LEGACY_DEFAULT_BRAND_IDS.includes(b.id));
-                } catch {
-                  return [];
-                }
-              })()
-            : []
-        );
-        runAutoSyncWith(loadedBrands);
+        // 改叫 refreshAllData(false):廣告成效(官網+一頁)、Shopline 訂單、每日收益表(Google 試算表)三個一起自動刷新,
+        // 跟廣告成效原本的自動同步共用同一個「今天有沒有跑過」的判斷,不會因為改成一起跑而變成每天重複觸發好幾次。
+        refreshAllData(false);
       }
     }
     loadInitialConfig();
@@ -3057,11 +3048,18 @@ function MetaAdsLedger() {
   // 一鍵刷新全部資料來源:①官網+一頁廣告成效(Meta,近3個月+近4週)②Shopline 訂單(近3個月+近4週)
   // ③一頁業績的每日收益表(Google 試算表)。依序執行(不是同時打,避免太多請求一起打向 Meta/Shopline 觸發頻率限制),
   // 手動點的動作,不受背景自動同步「一天一次」的限制,想刷新隨時可以按。任一項目失敗不會擋住其他項目繼續執行。
-  async function refreshAllData() {
+  // force=true(手動按「刷新全部」):不管今天有沒有跑過,一定重新整理一次。
+  // force=false(網頁打開時自動觸發):先檢查今天是否已經自動刷新過,跑過就直接跳過,避免同一天開好幾次網頁重複打一堆 API。
+  async function refreshAllData(force = true) {
+    if (!force) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const lastRunRes = await storage.get(AUTO_SYNC_DATE_KEY).catch(() => null);
+      if (lastRunRes && lastRunRes.value === todayStr) return;
+    }
     setRefreshAllStatus("整理中… 官網 / 一頁廣告成效");
     let metaOk = true;
     try {
-      await runAutoSyncWith(HARDCODED_BRANDS, true);
+      await runAutoSyncWith(HARDCODED_BRANDS, force);
     } catch { metaOk = false; }
 
     setRefreshAllStatus("整理中… Shopline 訂單");
@@ -3144,6 +3142,47 @@ function MetaAdsLedger() {
     : (sortedDailyDays.length ? sortedDailyDays[sortedDailyDays.length - 1].date : null);
   const focusDayRecord = activeFocusDay ? sortedDailyDays.find((d) => d.date === activeFocusDay) : null;
   const dailyMatrixCodes = dailyMonthRecord ? dailyMonthRecord.productCodes : [];
+
+  // 官網業績「每日報表」用:邏輯跟上面一頁業績那套完全一樣(月份分頁 → 選一天/矩陣總覽,自動帶入今天或最新一天有資料的日期),
+  // 只是資料源換成 shoplineMonthsData(Shopline 訂單),不是 ledgerByMonth(Google 試算表帳本)。
+  // dailyMonth/focusDay/dailySubMode 兩個品牌共用同一組 state——切換品牌時,如果原本選的月份/日期對新資料源無效,
+  // 下面的 fallback 邏輯會自動退回「今天」或「最新一筆有資料的日期」,不需要另外開一組獨立的 state。
+  const officialDailyMonthKeys = useMemo(() => Object.keys(shoplineMonthsData).sort(), [shoplineMonthsData]);
+  const activeOfficialDailyMonth = (dailyMonth && shoplineMonthsData[dailyMonth])
+    ? dailyMonth
+    : shoplineMonthsData[todayParts.monthKey]
+    ? todayParts.monthKey
+    : (officialDailyMonthKeys.length ? officialDailyMonthKeys[officialDailyMonthKeys.length - 1] : null);
+  const officialDailyMonthRecord = activeOfficialDailyMonth ? shoplineMonthsData[activeOfficialDailyMonth] : null;
+  const officialDailyRows = useMemo(
+    () => groupShoplineOrdersByDay(officialDailyMonthRecord ? officialDailyMonthRecord.orders : null),
+    [officialDailyMonthRecord]
+  );
+  // groupShoplineOrdersByDay 回傳的是新到舊排序,這裡另外存一份舊到新的,跟 sortedDailyDays(一頁業績那邊)排序方向一致,
+  // 這樣「選一天」的日期分頁、矩陣總覽的逐日列表,兩個品牌看起來的排列順序才會一樣。
+  const sortedOfficialDailyRows = useMemo(() => officialDailyRows.slice().sort((a, b) => (a.date < b.date ? -1 : 1)), [officialDailyRows]);
+  const activeOfficialFocusDay = (focusDay && sortedOfficialDailyRows.some((d) => d.date === focusDay))
+    ? focusDay
+    : sortedOfficialDailyRows.some((d) => d.date === todayParts.dateKey)
+    ? todayParts.dateKey
+    : (sortedOfficialDailyRows.length ? sortedOfficialDailyRows[sortedOfficialDailyRows.length - 1].date : null);
+  const officialFocusDayRecord = activeOfficialFocusDay ? sortedOfficialDailyRows.find((d) => d.date === activeOfficialFocusDay) : null;
+  const officialDailyMonthTotal = useMemo(() => {
+    return officialDailyRows.reduce(
+      (acc, d) => ({
+        orderCount: acc.orderCount + d.orderCount,
+        grossRevenue: acc.grossRevenue + d.grossRevenue,
+        discountAmount: acc.discountAmount + d.discountAmount,
+        netRevenue: acc.netRevenue + d.netRevenue,
+      }),
+      { orderCount: 0, grossRevenue: 0, discountAmount: 0, netRevenue: 0 }
+    );
+  }, [officialDailyRows]);
+  // 基礎分析用:當月哪一天實收營收最高。
+  const officialHighestRevenueDay = useMemo(() => {
+    if (!officialDailyRows.length) return null;
+    return officialDailyRows.reduce((best, d) => (!best || d.netRevenue > best.netRevenue ? d : best), null);
+  }, [officialDailyRows]);
   // threshold 有給且超過時,回傳標紅、加驚嘆號的樣式;沒給 threshold 或沒超過,就是原本的樣式。
   const adPct = (spend, revenue, threshold) => {
     if (revenue <= 0) return "—";
@@ -3294,19 +3333,6 @@ function MetaAdsLedger() {
     const target = couponFocusCode.trim().toUpperCase();
     return (couponQueryData.discountSummary || []).find((d) => String(d.code).toUpperCase() === target) || null;
   }, [couponFocusCode, couponQueryData]);
-
-  // 官網業績「每日報表」用:直接從折價券查詢那組日期範圍抓回來的 Shopline 訂單,依日期分組——
-  // 兩個分頁共用同一份查詢結果跟同一組日期選擇,不用另外重複抓一次。
-  const shoplineDailyRows = useMemo(() => groupShoplineOrdersByDay(couponQueryData && couponQueryData.orders), [couponQueryData]);
-  const shoplineDailyTotal = useMemo(
-    () => shoplineDailyRows.reduce((acc, d) => ({
-      orderCount: acc.orderCount + d.orderCount,
-      grossRevenue: acc.grossRevenue + d.grossRevenue,
-      discountAmount: acc.discountAmount + d.discountAmount,
-      netRevenue: acc.netRevenue + d.netRevenue,
-    }), { orderCount: 0, grossRevenue: 0, discountAmount: 0, netRevenue: 0 }),
-    [shoplineDailyRows]
-  );
 
   // ---------- 密碼閘:還沒驗證通過就不顯示任何報表內容 ----------
   if (isUnlocked === null) {
@@ -3952,94 +3978,129 @@ function MetaAdsLedger() {
 
       {viewMode === "daily" && (
         activeBrandId === OFFICIAL_SITE_BRAND_ID ? (
-          // ---------- 官網業績:每日報表直接用 Shopline 資料,不是 Google 試算表帳本 ----------
-          <>
-            <div className="mal-notice" style={{ marginBottom: 18 }}>
-              ☁️ H&J官網業績的營收數據來自 Shopline,不是 Google 試算表——這裡直接用「折價券查詢」那組時間範圍抓回來的 Shopline 訂單,依日期整理。
+          // ---------- 官網業績:每日報表邏輯跟一頁業績完全一樣(月份分頁 → 選一天/矩陣總覽),資料源是 Shopline ----------
+          !officialDailyMonthRecord && officialDailyMonthKeys.length === 0 ? (
+            <div className="mal-empty">
+              <div style={{ fontSize: 30 }}>📆</div>
+              <h3 style={{ fontFamily: "'Noto Serif KR', serif", margin: "12px 0 0" }}>還沒有抓取 Shopline 訂單資料</h3>
+              <p>每日報表需要先抓取 Shopline 訂單,系統才有逐日的資料可以顯示。按「一鍵更新全部」或「折價券查詢」分頁裡的查詢按鈕都可以抓取。</p>
             </div>
-            <div className="mal-cards" style={{ gridTemplateColumns: "1fr 1fr auto", alignItems: "end", marginBottom: 18 }}>
-              <div className="mal-field" style={{ margin: 0 }}>
-                <label>開始日期</label>
-                <input
-                  type="date"
-                  value={couponQuerySince}
-                  onChange={(e) => setCouponQuerySince(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", fontFamily: "IBM Plex Mono, monospace", fontSize: "13px" }}
-                />
+          ) : (
+            <>
+              <div className="mal-notice" style={{ marginBottom: 18 }}>
+                ☁️ H&J官網業績的營收數據來自 Shopline,不是 Google 試算表。
               </div>
-              <div className="mal-field" style={{ margin: 0 }}>
-                <label>結束日期</label>
-                <input
-                  type="date"
-                  value={couponQueryUntil}
-                  onChange={(e) => setCouponQueryUntil(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", fontFamily: "IBM Plex Mono, monospace", fontSize: "13px" }}
-                />
+              <div className="mal-tabs">
+                {officialDailyMonthKeys.map((mk) => (
+                  <div key={mk} className={`mal-tab ${mk === activeOfficialDailyMonth ? "mal-tab-active" : ""}`} onClick={() => { setDailyMonth(mk); setFocusDay(null); }}>
+                    {monthLabel(mk)}
+                  </div>
+                ))}
               </div>
-              <button className="mal-btn mal-btn-primary" disabled={couponQueryLoading} onClick={fetchCouponQueryData}>
-                {couponQueryLoading ? "查詢中…" : "🔍 查詢這段期間"}
-              </button>
-            </div>
-            {couponQueryError && <div className="mal-error">⚠ {couponQueryError}</div>}
 
-            {!couponQueryData ? (
-              <div className="mal-empty">
-                <div style={{ fontSize: 30 }}>📆</div>
-                <h3 style={{ fontFamily: "'Noto Serif KR', serif", margin: "12px 0 0" }}>選好時間範圍,按「查詢這段期間」開始</h3>
+              <div className="mal-viewmode-switch" style={{ marginBottom: 18 }}>
+                <button className={`mal-viewmode-btn ${dailySubMode === "single" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setDailySubMode("single")}>
+                  📌 選一天
+                </button>
+                <button className={`mal-viewmode-btn ${dailySubMode === "matrix" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setDailySubMode("matrix")}>
+                  📊 矩陣總覽
+                </button>
               </div>
-            ) : shoplineDailyRows.length === 0 ? (
-              <p style={{ color: "var(--ink-soft)", fontSize: 13.5 }}>這段期間沒有已付款的 Shopline 訂單。</p>
-            ) : (
-              <>
-                <div className="mal-cards" style={{ marginBottom: 18 }}>
-                  <div className="mal-card">
-                    <div className="mal-card-label">🏬 訂單數</div>
-                    <div className="mal-card-value">{fmtInt(shoplineDailyTotal.orderCount)}</div>
+
+              {dailySubMode === "single" && (
+                <>
+                  <div className="mal-tabs">
+                    {sortedOfficialDailyRows.map((d) => (
+                      <div key={d.date} className={`mal-tab ${d.date === activeOfficialFocusDay ? "mal-tab-active" : ""}`} onClick={() => setFocusDay(d.date)}>
+                        {d.date.slice(5)}
+                      </div>
+                    ))}
                   </div>
-                  <div className="mal-card">
-                    <div className="mal-card-label">🏬 原價營收</div>
-                    <div className="mal-card-value">{fmtMoney(shoplineDailyTotal.grossRevenue)}</div>
-                  </div>
-                  <div className="mal-card">
-                    <div className="mal-card-label">🏬 折扣金額</div>
-                    <div className="mal-card-value">{fmtMoney(shoplineDailyTotal.discountAmount)}</div>
-                  </div>
-                  <div className="mal-card">
-                    <div className="mal-card-label">🏬 實收營收</div>
-                    <div className="mal-card-value">{fmtMoney(shoplineDailyTotal.netRevenue)}</div>
-                  </div>
-                </div>
-                <h2 className="mal-section-title">
-                  每日營收明細<span className="mal-section-count">(依日期新到舊排序,{shoplineDailyRows.length} 天有訂單)</span>
-                </h2>
-                <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
-                  <table className="mal-table">
-                    <thead>
-                      <tr><th>日期</th><th>訂單數</th><th>原價營收</th><th>折扣金額</th><th>實收營收</th></tr>
-                    </thead>
-                    <tbody>
-                      {shoplineDailyRows.map((d) => (
-                        <tr key={d.date}>
-                          <td>{d.date}</td>
-                          <td>{fmtInt(d.orderCount)}</td>
-                          <td>{fmtMoney(d.grossRevenue)}</td>
-                          <td>{fmtMoney(d.discountAmount)}</td>
-                          <td>{fmtMoney(d.netRevenue)}</td>
+
+                  {officialFocusDayRecord ? (
+                    <>
+                      <div className="mal-cards" style={{ marginBottom: 18 }}>
+                        <div className="mal-card">
+                          <div className="mal-card-label">🏬 訂單數</div>
+                          <div className="mal-card-value">{fmtInt(officialFocusDayRecord.orderCount)}</div>
+                        </div>
+                        <div className="mal-card">
+                          <div className="mal-card-label">🏬 原價營收</div>
+                          <div className="mal-card-value">{fmtMoney(officialFocusDayRecord.grossRevenue)}</div>
+                        </div>
+                        <div className="mal-card">
+                          <div className="mal-card-label">🏬 折扣金額</div>
+                          <div className="mal-card-value">{fmtMoney(officialFocusDayRecord.discountAmount)}</div>
+                        </div>
+                        <div className="mal-card">
+                          <div className="mal-card-label">🏬 實收營收</div>
+                          <div className="mal-card-value">{fmtMoney(officialFocusDayRecord.netRevenue)}</div>
+                        </div>
+                      </div>
+                      <p style={{ fontSize: 11, color: "var(--ink-soft)", margin: "-8px 0 0" }}>
+                        Shopline 訂單沒有像後台每日收益表那樣拆分產品代號,這裡只能看全店合計,不能像一頁業績那樣看逐個代號明細。
+                      </p>
+                    </>
+                  ) : (
+                    <p style={{ color: "var(--ink-soft)", fontSize: 13.5 }}>這一天沒有資料。</p>
+                  )}
+                </>
+              )}
+
+              {dailySubMode === "matrix" && (
+                <>
+                  <h2 className="mal-section-title">
+                    {activeOfficialDailyMonth ? monthLabel(activeOfficialDailyMonth) : ""} 每日營收矩陣
+                    <span className="mal-section-count">({officialDailyRows.length} 天有訂單)</span>
+                  </h2>
+                  <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
+                    <table className="mal-table">
+                      <thead>
+                        <tr><th>日期</th><th>訂單數</th><th>原價營收</th><th>折扣金額</th><th>實收營收</th></tr>
+                      </thead>
+                      <tbody>
+                        {sortedOfficialDailyRows.map((d) => (
+                          <tr key={d.date}>
+                            <td>{d.date}</td>
+                            <td>{fmtInt(d.orderCount)}</td>
+                            <td>{fmtMoney(d.grossRevenue)}</td>
+                            <td>{fmtMoney(d.discountAmount)}</td>
+                            <td>{fmtMoney(d.netRevenue)}</td>
+                          </tr>
+                        ))}
+                        <tr>
+                          <td className="mal-row-month">總計</td>
+                          <td className="mal-row-month">{fmtInt(officialDailyMonthTotal.orderCount)}</td>
+                          <td className="mal-row-month">{fmtMoney(officialDailyMonthTotal.grossRevenue)}</td>
+                          <td className="mal-row-month">{fmtMoney(officialDailyMonthTotal.discountAmount)}</td>
+                          <td className="mal-row-month">{fmtMoney(officialDailyMonthTotal.netRevenue)}</td>
                         </tr>
-                      ))}
-                      <tr>
-                        <td className="mal-row-month">合計</td>
-                        <td className="mal-row-month">{fmtInt(shoplineDailyTotal.orderCount)}</td>
-                        <td className="mal-row-month">{fmtMoney(shoplineDailyTotal.grossRevenue)}</td>
-                        <td className="mal-row-month">{fmtMoney(shoplineDailyTotal.discountAmount)}</td>
-                        <td className="mal-row-month">{fmtMoney(shoplineDailyTotal.netRevenue)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {officialDailyMonthRecord && (
+                <div className="mal-week-analysis">
+                  <div className="mal-week-analysis-title">基礎分析</div>
+                  <ul>
+                    {officialHighestRevenueDay && (
+                      <li>
+                        {monthLabel(activeOfficialDailyMonth)}實收營收最高的一天是 {officialHighestRevenueDay.date}
+                        ({fmtMoney(officialHighestRevenueDay.netRevenue)},共 {fmtInt(officialHighestRevenueDay.orderCount)} 筆訂單)。
+                      </li>
+                    )}
+                    {officialDailyMonthTotal.grossRevenue > 0 && (
+                      <li>
+                        這個月折扣金額佔原價營收 {((officialDailyMonthTotal.discountAmount / officialDailyMonthTotal.grossRevenue) * 100).toFixed(1)}%。
+                      </li>
+                    )}
+                  </ul>
                 </div>
-              </>
-            )}
-          </>
+              )}
+            </>
+          )
         ) :
         !dailyMonthRecord && ledgerMonthKeys.length === 0 ? (
           <div className="mal-empty">
