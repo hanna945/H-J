@@ -3319,6 +3319,16 @@ function MetaAdsLedger() {
         .sort((a, b) => a.score - b.score)
         .map((x) => x.ad);
     }
+    if (adSortMode === "startDate") {
+      return withMetrics
+        .slice()
+        .sort((a, b) => {
+          if (!a.ad.startDate) return 1;
+          if (!b.ad.startDate) return -1;
+          return a.ad.startDate < b.ad.startDate ? 1 : a.ad.startDate > b.ad.startDate ? -1 : 0;
+        })
+        .map((x) => x.ad);
+    }
     // default: by spend, high to low
     return withMetrics.map((x) => x.ad).sort((a, b) => b.spend - a.spend);
   }, [visibleAds, adSortMode]);
@@ -3585,6 +3595,7 @@ function MetaAdsLedger() {
                   <option value="cpa">排序:CPA（好→壞）</option>
                   <option value="roas">排序:ROAS（好→壞）</option>
                   <option value="composite">排序:綜合成效（好→壞）</option>
+                  <option value="startDate">排序:投放時間（新→舊）</option>
                 </select>
               </div>
               <div className="mal-ad-list">
