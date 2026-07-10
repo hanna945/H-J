@@ -132,11 +132,15 @@
   .mal-scroll-wrap::-webkit-scrollbar-thumb { background: var(--blue); border-radius: 999px; border: 2px solid var(--rule); }
   /* 矩陣表格裡,每個產品代號區塊(4欄一組:營收/廣告費/廣告費佔比/淨利潤)交替上底色,
      跟相鄰的代號區塊、以及跟最左邊的「全店」區塊都要能一眼分辨,滑動時才不會看錯欄位屬於哪個代號。 */
-  .mal-matrix-group-a { background: #E9F1EC; }
-  .mal-matrix-group-b { background: #F5EAEE; }
-  .mal-matrix-group-a-label { color: #3F6355; }
-  .mal-matrix-group-b-label { color: #8A4A5E; }
-  .mal-matrix-group-start { border-left: 2.5px solid var(--ink) !important; }
+  .mal-matrix-group-a { background: #D9EBE0; }
+  .mal-matrix-group-b { background: #F3D9E3; }
+  .mal-matrix-group-a-label { color: #1F4A36; }
+  .mal-matrix-group-b-label { color: #6B1F3D; }
+  .mal-matrix-group-start { border-left: 3px solid var(--ink) !important; }
+  /* 代號名稱那一列(colspan 跨欄的標題列)用更深的底色,這是使用者掃視時第一個對到的視覺錨點,
+     要比底下的資料格更搶眼,才能在快速滑動表格時一眼認出「現在在哪個代號底下」。 */
+  .mal-matrix-group-a-header { background: #A9CDBA !important; }
+  .mal-matrix-group-b-header { background: #E3A9C0 !important; }
   .mal-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; font-size: 14px; }
   .mal-icon-btn:hover { color: var(--red); }
   .mal-ad-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
@@ -4373,7 +4377,7 @@ function MetaAdsLedger() {
                           <th
                             key={code}
                             colSpan={4}
-                            className={`mal-matrix-group-${i % 2 === 0 ? "a" : "b"} mal-matrix-group-${i % 2 === 0 ? "a" : "b"}-label mal-matrix-group-start`}
+                            className={`mal-matrix-group-${i % 2 === 0 ? "a" : "b"}-header mal-matrix-group-${i % 2 === 0 ? "a" : "b"}-label mal-matrix-group-start`}
                             style={{ textAlign: "center" }}
                           >
                             {code}
