@@ -518,23 +518,31 @@ function parseLedgerSheet(matrix, year) {
     if ((row2[c] || "").toString().trim() === "帳面營業額") {
       const code = (row1[c] || "").toString().trim().toUpperCase();
       if (!code) continue;
-      // 「帳面利潤」「稅後淨利/實際利潤」不用固定位移量(c+4、c+6)推算在第幾欄,改成直接往右找
-      // 寫著這些字的儲存格,用文字比對定位——避免某個代號剛好有合併儲存格或欄位排列跟其他代號
-      // 有一點點不一樣時,固定位移量抓歪卻沒人發現(整批代號裡只有那一個是錯的,其他都對,很難抓)。
-      // 搜尋範圍限制在 c+1 ~ c+11(11欄),超過這個範圍代表已經進到下一個代號的區塊,不能再往下找;
+      // 「平均客單價」「廣告費」「帳面利潤」「稅後淨利/實際利潤」都不用固定位移量推算在第幾欄,
+      // 改成直接往右找寫著這些字的儲存格,用文字比對定位——避免某個代號剛好欄位排列跟其他代號
+      // 不一樣時,固定位移量抓歪卻沒人發現。這裡不是理論上的假設:蝦皮、MOMO 這兩個代號實際上就是
+      // 沒有「平均客單價」這一欄(行銷通路直接看訂單、沒有這個概念),導致後面的廣告費/利潤欄位
+      // 整批往左遞補一格,固定位移量在這兩個代號上會直接抓錯欄。
+      // 搜尋範圍限制在 c ~ c+11(11欄),超過這個範圍代表已經進到下一個代號的區塊,不能再往下找;
       // 真的找不到才退回原本的固定位移量當保底,不會整個欄位直接空著。
       const SEARCH_LIMIT = 12;
+      let colAov = null;
+      let colSpend = null;
       let colProfit = null;
       let colNetProfit = null;
       for (let k = c + 1; k < c + SEARCH_LIMIT; k++) {
         const label = (row2[k] || "").toString().trim();
+        if (colAov === null && label === "平均客單價") colAov = k;
+        if (colSpend === null && label === "廣告費") colSpend = k;
         if (colProfit === null && label === "帳面利潤") colProfit = k;
         if (colNetProfit === null && (label === "稅後淨利" || label.startsWith("實際利潤"))) colNetProfit = k;
       }
       blocks.push({
         code,
         name: (row1[c + 1] || "").toString().trim(),
-        colRevenue: c, colAov: c + 1, colSpend: c + 2,
+        colRevenue: c,
+        colAov: colAov, // 找不到就是 null(蝦皮/MOMO本來就沒有這欄,orders 會算不出來,直接顯示 "—",不會硬套錯的欄位)
+        colSpend: colSpend !== null ? colSpend : c + 2,
         colProfit: colProfit !== null ? colProfit : c + 4,
         colNetProfit: colNetProfit !== null ? colNetProfit : c + 6,
       });
