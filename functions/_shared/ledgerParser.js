@@ -39,7 +39,7 @@ export function parseLedgerSheet(matrix, year) {
         if (colAov === null && label === "平均客單價") colAov = k;
         if (colSpend === null && label === "廣告費") colSpend = k;
         if (colProfit === null && label === "帳面利潤") colProfit = k;
-        if (colNetProfit === null && (label === "稅後淨利" || label.startsWith("實際利潤"))) colNetProfit = k;
+        if (colNetProfit === null && (label === "稅後淨利" || label.startsWith("實際利潤") || label === "真實利潤")) colNetProfit = k;
       }
       blocks.push({
         code,
