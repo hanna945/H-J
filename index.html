@@ -533,9 +533,14 @@ function parseLedgerSheet(matrix, year) {
       for (let k = c + 1; k < c + SEARCH_LIMIT; k++) {
         const label = (row2[k] || "").toString().trim();
         if (colAov === null && label === "平均客單價") colAov = k;
-        if (colSpend === null && label === "廣告費") colSpend = k;
-        if (colProfit === null && label === "帳面利潤") colProfit = k;
-        if (colNetProfit === null && (label === "稅後淨利" || label.startsWith("實際利潤") || label === "真實利潤")) colNetProfit = k;
+        // 廣告費/帳面利潤,原本用精確比對,MOMO、LINE禮物的欄名其實是「廣告費(平台抽成)」,
+        // 門市、經銷的利潤欄名是「帳面利潤:扣貨物成本」「帳面利潤:貨物成本」這種帶冒號後綴的寫法,
+        // 精確比對全部對不上、會落到後面的固定位移量保底(而保底位移量對這幾個代號來說是錯的,
+        // 通常會抓到旁邊的百分比顯示欄,數字很小但不是0,不會被『沒資料』的判斷擋下來)。
+        // 改成 startsWith,只要開頭是這幾個字就算數,涵蓋全部後綴變體。
+        if (colSpend === null && label.startsWith("廣告費")) colSpend = k;
+        if (colProfit === null && label.startsWith("帳面利潤")) colProfit = k;
+        if (colNetProfit === null && (label === "稅後淨利" || label.startsWith("實際利潤") || label.startsWith("真實利潤"))) colNetProfit = k;
       }
       blocks.push({
         code,
@@ -1305,7 +1310,7 @@ async function exportAdPerformanceToWord({ rows, totalRevenue, totalSpend, total
                     dataCell(fmtMoney(r.spend, currencyCode)),
                     dataCell(fmtMoney(r.revenue, currencyCode)),
                     dataCell(roas !== null ? `${roas.toFixed(2)}x` : "—", tier && tier.color),
-                    dataCell(fmtInt(r.conversions)),
+                    dataCell(r.conversions !== null && r.conversions !== undefined ? fmtInt(r.conversions) : "—"),
                     dataCell(cpa !== null ? fmtMoney(cpa, currencyCode) : "—"),
                     dataCell(`${r.spendShare.toFixed(1)}%`),
                   ],
@@ -1342,7 +1347,7 @@ async function exportAdPerformanceToWord({ rows, totalRevenue, totalSpend, total
 // 這支元件原本(另一個對話 session)漏掉了函式宣告那一行,只有內文沒有包起來,會直接造成語法錯誤。
 // 補回宣告——這支元件寫在最外層(跟 roasTier/HorizontalBarChart/exportAdPerformanceToWord 同一層),
 // 不在主 App 元件裡面,所以拿不到 brands/activeBrandId 這些畫面狀態,要透過 props 傳進來,不能用 closure 讀。
-function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, brands, activeBrandId, onEditRoasTarget, minSpend = 500, productNames = {}, onEditProductName }) {
+function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, brands, activeBrandId, onEditRoasTarget, minSpend = 500, productNames = {}, onEditProductName, ledgerAgg = null }) {
   const displayName = (code) => (productNames[code] ? `${code}(${productNames[code]})` : code);
   const reportRef = useRef(null);
   const [aiInsights, setAiInsights] = useState(null); // null = 還沒生成過,顯示規則統計版當預設
@@ -1351,11 +1356,52 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, b
   const [isEditingInsights, setIsEditingInsights] = useState(false);
   const [rowJudgments, setRowJudgments] = useState({}); // { 代號: {icon, label} } AI生成的逐代號短判斷,跟insights同一次呼叫產生
   const [editText, setEditText] = useState("");
-  const { rows, totalRevenue, totalSpend } = buildProductBreakdown(ads, minSpend);
-  if (!rows.length) {
+  const { rows: metaRows, totalRevenue: metaTotalRevenue, totalSpend: metaTotalSpend } = buildProductBreakdown(ads, minSpend);
+
+  // 通路(蝦皮/MOMO/門市/經銷這類後台帳本有、但沒下Meta廣告的代號):
+  // 有花費的(蝦皮的廣告費、MOMO/LINE禮物的平台抽成)併入下面主表一起排ROAS;
+  // 沒花費的(門市、經銷本來就沒有廣告費概念)另外獨立列業績,不進ROAS排行、不影響整體花費/ROAS。
+  // spend 門檻多一道「至少是營收1%」的保護,是因為帳本解析在少數欄位對不到文字時會退回固定位移量保底,
+  // 保底偶爾會抓到旁邊的百分比顯示欄(數字很小但不是0),這裡避免那種雜訊被誤判成「有花費」。
+  const metaCodes = new Set(metaRows.map((r) => r.code));
+  const channelRowsToMerge = [];
+  const channelRevenueOnlyRows = [];
+  if (ledgerAgg && ledgerAgg.byCode) {
+    Object.entries(ledgerAgg.byCode).forEach(([code, v]) => {
+      if (metaCodes.has(code)) return; // 這個代號 Meta 已經有資料,不重複算(帳面 vs Meta 落差另外由 LedgerVsMetaComparison 負責)
+      const hasRealSpend = v.spend > 0 && (!(v.revenue > 0) || v.spend >= v.revenue * 0.01);
+      if (hasRealSpend) {
+        channelRowsToMerge.push({
+          code,
+          spend: v.spend,
+          revenue: v.revenue,
+          conversions: v.hasOrderEst && v.orderEst > 0 ? Math.round(v.orderEst) : null,
+          count: 0,
+          isChannel: true,
+        });
+      } else if (v.revenue > 0) {
+        channelRevenueOnlyRows.push({ code, revenue: v.revenue, profit: v.profit, netProfit: v.netProfit });
+      }
+    });
+  }
+  const mergedTotalRevenue = metaTotalRevenue + channelRowsToMerge.reduce((s, r) => s + r.revenue, 0);
+  const mergedTotalSpend = metaTotalSpend + channelRowsToMerge.reduce((s, r) => s + r.spend, 0);
+  const rows = [...metaRows, ...channelRowsToMerge]
+    .map((r) => ({
+      ...r,
+      profit: r.revenue - r.spend,
+      revenueShare: mergedTotalRevenue > 0 ? (r.revenue / mergedTotalRevenue) * 100 : 0,
+      spendShare: mergedTotalSpend > 0 ? (r.spend / mergedTotalSpend) * 100 : 0,
+      costRatio: r.revenue > 0 ? (r.spend / r.revenue) * 100 : null,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+  const totalRevenue = mergedTotalRevenue;
+  const totalSpend = mergedTotalSpend;
+  const grandTotalRevenue = totalRevenue + channelRevenueOnlyRows.reduce((s, r) => s + r.revenue, 0);
+  if (!rows.length && !channelRevenueOnlyRows.length) {
     return <p style={{ color: "var(--ink-soft)", fontSize: 13.5 }}>目前還沒有足夠的資料可以產生投放成效報告。</p>;
   }
-  const totalConversions = rows.reduce((s, r) => s + r.conversions, 0);
+  const totalConversions = rows.reduce((s, r) => s + (r.conversions || 0), 0);
   const overallRoas = totalSpend > 0 ? totalRevenue / totalSpend : null;
   const chartRows = [...rows].sort((a, b) => (b.spend > 0 ? b.revenue / b.spend : 0) - (a.spend > 0 ? a.revenue / a.spend : 0));
   const chartData = chartRows.map((r) => {
@@ -1537,7 +1583,7 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, b
                   <td>{fmtMoney(r.spend, currencyCode)}</td>
                   <td>{fmtMoney(r.revenue, currencyCode)}</td>
                   <td style={tier ? { color: tier.color, fontWeight: 700 } : undefined}>{roas !== null ? `${roas.toFixed(2)}x` : "—"}</td>
-                  <td>{fmtInt(r.conversions)}</td>
+                  <td>{r.conversions !== null && r.conversions !== undefined ? fmtInt(r.conversions) : "—"}</td>
                   <td>{cpa !== null ? fmtMoney(cpa, currencyCode) : "—"}</td>
                   <td>{r.spendShare.toFixed(1)}%</td>
                   <td style={{ cursor: "pointer" }} title="點一下可以設定/編輯這個代號的判斷" onClick={() => editRowJudgment(r.code)}>
@@ -1568,6 +1614,32 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, b
           </span>
         ))}
       </div>
+
+      {channelRevenueOnlyRows.length > 0 && (
+        <>
+          <h3 className="mal-section-title" style={{ fontSize: 15, marginTop: 22, marginBottom: 10 }}>
+            🏪 其他通路<span style={{ fontWeight: 400, fontSize: 11.5, color: "var(--ink-soft)", marginLeft: 6 }}>(後台帳本沒有廣告費欄位,只列業績,不進上面的ROAS排行)</span>
+          </h3>
+          <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
+            <table className="mal-table">
+              <thead>
+                <tr><th>通路</th><th>業績</th><th>業績佔比</th><th>帳面利潤</th><th>真實利潤</th></tr>
+              </thead>
+              <tbody>
+                {[...channelRevenueOnlyRows].sort((a, b) => b.revenue - a.revenue).map((r) => (
+                  <tr key={r.code}>
+                    <td>{r.code}</td>
+                    <td>{fmtMoney(r.revenue, currencyCode)}</td>
+                    <td>{grandTotalRevenue > 0 ? ((r.revenue / grandTotalRevenue) * 100).toFixed(1) : "0.0"}%</td>
+                    <td>{r.profit !== null && r.profit !== undefined ? fmtMoney(r.profit, currencyCode) : "—"}</td>
+                    <td>{r.netProfit !== null && r.netProfit !== undefined ? fmtMoney(r.netProfit, currencyCode) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {displayInsights.length > 0 && (
         <div className="mal-insight-box">
@@ -4347,6 +4419,23 @@ function MetaAdsLedger() {
             )
           )}
 
+          {focusData && (
+            <AdPerformanceReport
+              key={`${activeBrandId}::${focusMonth}`}
+              ads={filterAdsByStatus(focusData.ads, adStatusFilter, adSearchKeyword)}
+              currencyCode={focusData.currency}
+              periodLabel={monthLabel(focusMonth)}
+              roasTarget={roasTargets[activeBrandId]}
+              brands={brands}
+              activeBrandId={activeBrandId}
+              onEditRoasTarget={editRoasTarget}
+              productNames={productNames[activeBrandId] || {}}
+              onEditProductName={editProductName}
+              minSpend={MIN_AD_SPEND}
+              ledgerAgg={activeBrandId === OFFICIAL_SITE_BRAND_ID ? null : aggregateLedgerRange(ledgerByMonth, monthDateRange(focusMonth).since, monthDateRange(focusMonth).until)}
+            />
+          )}
+
           {focusData && spendFilteredAds.length > 0 && (
             <StatusFilterButtons statusValue={adStatusFilter} onStatusChange={setAdStatusFilter} keyword={adSearchKeyword} onKeywordChange={setAdSearchKeyword} />
           )}
@@ -4568,6 +4657,7 @@ function MetaAdsLedger() {
                   productNames={productNames[activeBrandId] || {}}
                   onEditProductName={editProductName}
                   minSpend={MIN_AD_SPEND}
+                  ledgerAgg={activeBrandId === OFFICIAL_SITE_BRAND_ID ? null : aggregateLedgerRange(ledgerByMonth, focusWeek, addDaysISO(focusWeek, 6))}
                 />
 
                 {focusWeekData.ads && focusWeekData.ads.filter((a) => a.spend >= MIN_AD_SPEND).length > 0 && (
