@@ -1948,7 +1948,6 @@ function MetaAdsLedger() {
   const [adSortMode, setAdSortMode] = useState("spend");
   const [adStatusFilter, setAdStatusFilter] = useState("all"); // "all" | "active" | "inactive" —— 篩選要看投放中還是已停止的廣告
   const [adSearchKeyword, setAdSearchKeyword] = useState(""); // 依廣告名稱/行銷活動/UTM 關鍵字搜尋,空字串表示不篩選
-  const [showApiPanel, setShowApiPanel] = useState(false);
   // 全域節流用:記錄「最後一次真正打到 Meta Graph API」的時間戳。
   // 不管是週報表、月報表、批次、自動同步或縮圖抓取,只要是打 Meta 的請求都共用同一個時間戳,
   // 確保任兩次呼叫之間至少間隔 MIN_API_GAP_MS——即使使用者手動連續按「抓上週」再按「抓月報表」也一樣受限,
@@ -1991,7 +1990,6 @@ function MetaAdsLedger() {
 
   // ---------- 後台每日收益表(帳本)/ 每日報表 / 團隊密碼:state ----------
   const [ledgerByMonth, setLedgerByMonth] = useState({});
-  const [showLedgerModal, setShowLedgerModal] = useState(false);
   const [ledgerYear, setLedgerYear] = useState(new Date().getFullYear());
   const [ledgerImportLoading, setLedgerImportLoading] = useState(false);
   const [ledgerImportError, setLedgerImportError] = useState(null);
@@ -2004,6 +2002,12 @@ function MetaAdsLedger() {
   const [cloudStatus, setCloudStatus] = useState(HAS_SHARED_STORAGE ? "artifact" : "unknown");
   const [credentialName, setCredentialName] = useState("");
   const [showTeamKeyModal, setShowTeamKeyModal] = useState(false);
+  // showApiPanel/showLedgerModal:對應的按鈕、彈窗畫面都拿掉了(這兩個是會外流權杖/試算表的舊功能),
+  // 但底下還有幾支舊函式(importLedgerFile、syncFromGoogleSheet等)內部呼叫這兩個setter——
+  // 這些函式現在沒有任何按鈕會觸發到,是真正的孤兒程式碼,之後應該整支拿掉,
+  // 但這裡先保留state宣告本身,避免那幾支孤兒函式(萬一被別處呼叫到)直接噴出「未定義」的錯誤。
+  const [showApiPanel, setShowApiPanel] = useState(false);
+  const [showLedgerModal, setShowLedgerModal] = useState(false);
   const [teamKeyInput, setTeamKeyInput] = useState(getTeamKey());
 
   // ---------- Shopline 對照:state ----------
@@ -3298,8 +3302,14 @@ function MetaAdsLedger() {
     if (!ledgerAgg) {
       return (
         <div className="mal-empty">
-          <p>這個{periodLabel}還沒有匯入後台的「每日收益表」,沒辦法比對後台實際業績跟 Meta 回報的落差。</p>
-          <button className="mal-btn mal-btn-primary" onClick={onOpenImport}>📥 匯入後台每日收益表</button>
+          {onOpenImport ? (
+            <>
+              <p>這個{periodLabel}還沒有匯入後台的「每日收益表」,沒辦法比對後台實際業績跟 Meta 回報的落差。</p>
+              <button className="mal-btn mal-btn-primary" onClick={onOpenImport}>📥 匯入後台每日收益表</button>
+            </>
+          ) : (
+            <p>這個{periodLabel}的後台業績資料還沒同步完成,稍後重新整理再看一次。</p>
+          )}
         </div>
       );
     }
@@ -4284,7 +4294,6 @@ function MetaAdsLedger() {
           >
             {refreshAllStatus ? "刷新中…" : "🔄 一鍵更新全部(廣告+Shopline+每日營收)"}
           </button>
-          <button className="mal-btn" onClick={() => setShowApiPanel(true)}>🔌 手動選期間更新</button>
           {(sortedKeys.length > 0 || sortedWeekKeys.length > 0) && (
             <button className="mal-btn mal-print-btn" onClick={handlePrintClick}>🖨 列印</button>
           )}
@@ -4552,7 +4561,6 @@ function MetaAdsLedger() {
                   ads={filterAdsByStatus(focusData.ads, adStatusFilter, adSearchKeyword)}
                   currencyCode={focusData.currency}
                   ledgerAgg={aggregateLedgerRange(ledgerByMonth, monthDateRange(focusMonth).since, monthDateRange(focusMonth).until)}
-                  onOpenImport={() => setShowLedgerModal(true)}
                   periodLabel="月份"
                 />
               </>
@@ -4770,7 +4778,6 @@ function MetaAdsLedger() {
                       ads={filterAdsByStatus(focusWeekData.ads, adStatusFilter, adSearchKeyword)}
                       currencyCode={focusWeekData.currency}
                       ledgerAgg={aggregateLedgerRange(ledgerByMonth, focusWeek, addDaysISO(focusWeek, 6))}
-                      onOpenImport={() => setShowLedgerModal(true)}
                       periodLabel="週"
                     />
                   </>
@@ -5019,9 +5026,8 @@ function MetaAdsLedger() {
         !dailyMonthRecord && ledgerMonthKeys.length === 0 ? (
           <div className="mal-empty">
             <div style={{ fontSize: 30 }}>📆</div>
-            <h3 style={{ fontFamily: "'Noto Serif KR', serif", margin: "12px 0 0" }}>還沒有匯入後台每日收益表</h3>
-            <p>每日報表需要先匯入「後台每日收益表」(.xlsx 上傳,或 Google 試算表同步),系統才有逐日、逐產品代號的資料可以顯示。</p>
-            <button className="mal-btn mal-btn-primary" onClick={() => setShowLedgerModal(true)}>📥 匯入後台每日收益表</button>
+            <h3 style={{ fontFamily: "'Noto Serif KR', serif", margin: "12px 0 0" }}>後台每日收益表還沒同步</h3>
+            <p>資料每天會自動同步,稍後重新整理再看一次;如果一直沒有出現,麻煩跟我們反應。</p>
           </div>
         ) : (
           <>
@@ -5433,229 +5439,6 @@ function MetaAdsLedger() {
         </>
       )}
 
-      {showApiPanel && (
-        <div className="mal-modal-overlay">
-          <div className="mal-modal mal-modal-small">
-            <h3>連接 Meta API</h3>
-            <p className="mal-modal-sub">
-              {rememberToken
-                ? "權杖已記住,存在這台瀏覽器裡(其他人用同一台電腦、同一個瀏覽器也看得到)。"
-                : "權杖不會存起來,重新整理頁面後要重新貼一次。"}
-            </p>
-
-            <div className="mal-field">
-              <label>模式</label>
-              <select value={apiMode} onChange={(e) => { setApiMode(e.target.value); setBatchProgress(null); }}>
-                <option value="auto3months">🚀 自動更新前3個月月報表</option>
-                <option value="auto4weeks">🚀 自動更新前4週週報表</option>
-                <option value="full">直接抓整月資料</option>
-                <option value="multi">多品牌批次抓取</option>
-                <option value="week">上週報表(週一至週日)</option>
-                <option value="recentWeeks">自動回溯抓取過去 N 週</option>
-              </select>
-            </div>
-
-            <div className="mal-field">
-              <label>存取權杖(Access Token)</label>
-              <input
-                type="password"
-                value={apiToken}
-                onChange={(e) => setApiToken(e.target.value)}
-                placeholder="EAAxxxxxxxxxxxxxxxx"
-                style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", fontFamily: "IBM Plex Mono, monospace", fontSize: "12px" }}
-              />
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 400, marginTop: 8, fontSize: 12.5 }}>
-                <input type="checkbox" checked={rememberToken} onChange={(e) => toggleRememberToken(e.target.checked)} />
-                記住這組權杖(存在這台瀏覽器,下次開啟自動帶入)
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 400, marginTop: 6, fontSize: 12.5 }}>
-                <input type="checkbox" checked={autoSyncEnabled} onChange={(e) => toggleAutoSync(e.target.checked)} />
-                開啟網頁時自動更新近3個月/近4週資料(不需要貼權杖)
-              </label>
-              {autoSyncEnabled && (
-                <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6, lineHeight: 1.5 }}>
-                  只在打開這個網頁的當下才會檢查,不會在你沒開網頁時於背景執行。當月、當週每次都會重新抓最新的(更新到前一天);
-                  已經結束的月份/週,已經抓過就不會重抓。一天只會真的觸發一次,不管重新整理頁面幾次都不會重複抓。
-                </p>
-              )}
-            </div>
-
-            <div className="mal-field">
-              <button
-                type="button"
-                className="mal-btn"
-                disabled={!!autoSyncStatus}
-                onClick={runAutoSync}
-              >
-                {autoSyncStatus ? "同步中…" : "🔄 立即同步近3個月/近4週資料"}
-              </button>
-            </div>
-
-            {apiMode !== "multi" && (
-              <div className="mal-field">
-                <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: 0 }}>
-                  廣告帳號已鎖定為「H&J官網」,不需要輸入 ID。
-                </p>
-              </div>
-            )}
-
-            {apiMode === "multi" && (
-              <div className="mal-field">
-                <label>要抓整月還是上週?</label>
-                <div style={{ display: "flex", gap: 16 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-                    <input type="radio" name="batchGranularity" checked={batchGranularity === "month"} onChange={() => setBatchGranularity("month")} />
-                    整月資料
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-                    <input type="radio" name="batchGranularity" checked={batchGranularity === "week"} onChange={() => setBatchGranularity("week")} />
-                    上週資料(週一至週日)
-                  </label>
-                </div>
-              </div>
-            )}
-
-            {apiMode === "multi" && (
-              <div className="mal-field">
-                <label>選擇要一起抓的品牌</label>
-                {brands.length === 0 ? (
-                  <p style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
-                    還沒有存過任何常用品牌。先切到「直接抓整月資料」模式,填一次帳號 ID 並「存為常用」,之後就能在這裡勾選批次抓取。
-                  </p>
-                ) : (
-                  <div style={{ border: "1px solid var(--rule)", borderRadius: "10px", padding: "8px 10px", maxHeight: 160, overflowY: "auto" }}>
-                    {brands.map((b) => (
-                      <label key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "4px 0", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedBatchBrandIds.includes(b.id)}
-                          onChange={(e) => {
-                            setSelectedBatchBrandIds((prev) =>
-                              e.target.checked ? [...prev, b.id] : prev.filter((id) => id !== b.id)
-                            );
-                          }}
-                        />
-                        {b.name}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {(apiMode === "week" || (apiMode === "multi" && batchGranularity === "week")) && (
-              <div className="mal-field">
-                <label>上週日期範圍</label>
-                <div style={{ padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", background: "var(--paper-raised)", fontFamily: "IBM Plex Mono, monospace", fontSize: "13px" }}>
-                  {weekInfo.since} ~ {weekInfo.until}
-                </div>
-                <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6, lineHeight: 1.5 }}>
-                  自動抓「上一個完整的週一到週日」,只統計「購買」類型的轉換。花費 ≥ 500 的廣告會收錄;花費雖然還不到 500,但目前仍在投放中的廣告也會一併收錄,方便觀察剛起步的廣告。
-                </p>
-              </div>
-            )}
-
-            {apiMode === "recentWeeks" && (
-              <div className="mal-field">
-                <label>要往前回溯抓幾週?</label>
-                <select
-                  value={recentWeeksCount}
-                  onChange={(e) => setRecentWeeksCount(Number(e.target.value))}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", background: "var(--paper-raised)" }}
-                >
-                  <option value={2}>過去 2 週</option>
-                  <option value={4}>過去 4 週</option>
-                  <option value={8}>過去 8 週</option>
-                  <option value={12}>過去 12 週</option>
-                </select>
-                <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6, lineHeight: 1.5 }}>
-                  會從「上週」開始,一週一週往前抓(每週都是完整的週一到週日),每抓完一週會間隔 4 秒再抓下一週,避免觸發 Meta 頻率限制。
-                  週數越多需要等待的時間越長,過程中請不要關掉這個分頁。已經抓過的週份重新抓取會直接覆蓋更新。
-                </p>
-              </div>
-            )}
-
-            {apiMode === "auto3months" && (
-              <div className="mal-field">
-                <div style={{ padding: "10px 12px", background: "#EEF1E4", border: "1px solid #D8E0C8", borderRadius: "10px", color: "#5C6B41", fontSize: 13 }}>
-                  <strong>自動更新前3個月月報表</strong><br/>
-                  系統會自動計算當月及前2個月,依次抓取每個月的廣告成效資料。每抓完一個月會間隔 4 秒再抓下一個月,避免觸發 Meta 頻率限制。
-                </div>
-              </div>
-            )}
-
-            {apiMode === "auto4weeks" && (
-              <div className="mal-field">
-                <div style={{ padding: "10px 12px", background: "#EEF1E4", border: "1px solid #D8E0C8", borderRadius: "10px", color: "#5C6B41", fontSize: 13 }}>
-                  <strong>自動更新前4週週報表</strong><br/>
-                  系統會自動抓取過去4週(週一至週日)的廣告成效資料。每抓完一週會間隔 4 秒再抓下一週,避免觸發 Meta 頻率限制。
-                </div>
-              </div>
-            )}
-
-            {(apiMode === "full" || (apiMode === "multi" && batchGranularity === "month")) && (
-              <div className="mal-field">
-                <label>要抓哪個月?</label>
-                <input
-                  type="month"
-                  value={apiMonth}
-                  onChange={(e) => setApiMonth(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", fontFamily: "Noto Sans TC, sans-serif", fontSize: "13px" }}
-                />
-                <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6, lineHeight: 1.5 }}>
-                  只會統計「購買」類型的轉換(訂單數與金額)。如果你的廣告目標不是導購,轉單數可能會顯示 0,這是正常的。
-                </p>
-              </div>
-            )}
-
-            {batchProgress && (
-              <div className="mal-field">
-                <label>批次進度</label>
-                <div style={{ border: "1px solid var(--rule)", borderRadius: "10px", padding: "8px 10px" }}>
-                  {batchProgress.map((p) => (
-                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0" }}>
-                      <span>{p.name}</span>
-                      <span style={{
-                        color: p.status === "error" ? "var(--red)" : p.status === "done" ? "var(--green)" : "var(--ink-soft)",
-                      }}>
-                        {p.status === "pending" && "等待中"}
-                        {p.status === "running" && "抓取中…"}
-                        {p.status === "done" && `✓ ${p.message}`}
-                        {p.status === "empty" && "沒有資料"}
-                        {p.status === "error" && `✗ ${p.message}`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="mal-modal-actions">
-              <button className="mal-btn" onClick={() => setShowApiPanel(false)}>取消</button>
-              <button
-                className="mal-btn mal-btn-primary"
-                disabled={apiLoading || weekLoading}
-                onClick={
-                  apiMode === "auto3months"
-                    ? () => fetchRecentMonthsFromApi(3)
-                    : apiMode === "auto4weeks"
-                    ? fetchRecentWeeks4FromApi
-                    : apiMode === "full"
-                    ? fetchFullMonthFromApi
-                    : apiMode === "multi"
-                    ? fetchBatchFromApi
-                    : apiMode === "recentWeeks"
-                    ? () => fetchRecentWeeksFromApi(recentWeeksCount)
-                    : fetchLastWeekData
-                }
-              >
-                {apiLoading || weekLoading ? "抓取中…" : "開始抓取"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showTeamKeyModal && (
         <div className="mal-modal-overlay">
           <div className="mal-modal">
@@ -5685,65 +5468,6 @@ function MetaAdsLedger() {
             <div className="mal-modal-actions">
               <button className="mal-btn" onClick={() => setShowTeamKeyModal(false)}>關閉</button>
               <button className="mal-btn mal-btn-primary" onClick={saveTeamKey}>儲存並測試連線</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showLedgerModal && (
-        <div className="mal-modal-overlay">
-          <div className="mal-modal">
-            <h3>匯入後台每日收益表</h3>
-            <p className="mal-modal-sub">
-              上傳「每日收益表」.xlsx 檔(跟範例表單一致:分頁是「1月」~「12月」,欄位依產品代號拆分)。
-              系統會自動抓出每個分頁對應的月份,存成該品牌的後台實際業績,週報表/月報表會自動比對 Meta 回報的落差。
-              重新匯入同一個月份會直接覆蓋更新。
-            </p>
-            <div className="mal-field">
-              <label>這份檔案的年度 <span className="mal-req">*</span></label>
-              <input
-                type="number"
-                value={ledgerYear}
-                onChange={(e) => setLedgerYear(e.target.value)}
-                style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", fontFamily: "IBM Plex Mono, monospace", fontSize: "13px" }}
-              />
-              <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6, lineHeight: 1.5 }}>
-                表單裡的分頁只有「月」沒有「年」,所以需要另外指定年度,才能正確存成例如 2026-07 這樣的月份。
-              </p>
-            </div>
-            <div className="mal-field">
-              <label>選擇檔案 <span className="mal-req">*</span></label>
-              <input
-                type="file"
-                accept=".xlsx"
-                onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) importLedgerFile(f); }}
-                style={{ width: "100%" }}
-              />
-            </div>
-            <div style={{ borderTop: "1px dashed var(--rule)", margin: "16px 0 14px" }} />
-            <div className="mal-field">
-              <label>或者:直接從 Google 試算表同步(不用手動下載/上傳)</label>
-              <input
-                type="text"
-                value={sheetIdInput}
-                onChange={(e) => setSheetIdInput(e.target.value)}
-                placeholder="Google 試算表 ID(網址 .../spreadsheets/d/ 後面那一串)"
-                style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--rule)", borderRadius: "10px", fontFamily: "IBM Plex Mono, monospace", fontSize: "13px", marginBottom: 8 }}
-              />
-              <p style={{ fontSize: 11.5, color: "var(--ink-soft)", lineHeight: 1.5, marginBottom: 8 }}>
-                試算表不用公開,只要分享給服務帳號的 email(檢視者權限即可)。
-                會同步到目前選取的品牌(廣告帳號 ID:{activeBrandId || "尚未選擇"}),下次打開會自動記住這個品牌對應的試算表 ID(留空直接按同步,會沿用上次記住的那份)。
-              </p>
-              <button className="mal-btn mal-btn-primary" disabled={sheetSyncLoading} onClick={syncFromGoogleSheet}>
-                {sheetSyncLoading ? "同步中…" : "☁️ 從 Google 試算表同步"}
-              </button>
-            </div>
-            {ledgerImportError && <div className="mal-error">⚠ {ledgerImportError}</div>}
-            {ledgerImportNotice && <div className="mal-notice">✓ {ledgerImportNotice}</div>}
-            <div className="mal-modal-actions">
-              <button className="mal-btn" disabled={ledgerImportLoading} onClick={() => setShowLedgerModal(false)}>
-                {ledgerImportLoading ? "匯入中…" : "關閉"}
-              </button>
             </div>
           </div>
         </div>
