@@ -3087,7 +3087,13 @@ function MetaAdsLedger() {
             ? nameList[0]
             : `${nameList[0]} 等 ${nameList.length} 支廣告`;
         const campaignList = [...g.campaigns];
-        const campaign = campaignList.length ? campaignList.join(" / ") : "(未分類活動)";
+        // 跟 shopline-proxy 後端同一個bug、同一個修法。
+        const campaign =
+          campaignList.length === 0
+            ? "(未分類活動)"
+            : campaignList.length === 1
+            ? campaignList[0]
+            : `${campaignList[0]} 等 ${campaignList.length} 個活動`;
         return {
           name, utm: g.utm, image: g.image, postId: g.postId, spend: g.spend, conversions: g.conversions, revenue: g.revenue,
           adCount, rawNames: nameList, active: g.active, campaign, adIds: [...g.adIds], startDate: g.startDate,
