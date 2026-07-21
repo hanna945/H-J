@@ -925,6 +925,26 @@ const NON_PRODUCT_CODE_PATTERN = /test|測試/i;
 // 依「產品代號」統計每個產品的營業額、廣告費、佔比與利潤,用來做業績比例分析(圓餅圖/表格)。
 // 代號清單完全從實際資料裡動態產生,不是寫死的列表——新產品只要照命名規則建立行銷活動,就會自動出現在這裡。
 // minSpend:花費低於這個門檻、又沒有轉單金額的廣告會被排除(避免資料量過大拖慢讀取),但會獨立計數方便對帳。
+const AD_RATIO_CRITICAL_PCT = 30; // 廣告費佔比超過這個數字,不管有沒有設定門檻,一律標紅(比黃字警示更嚴重的等級)
+// 移到頂層(原本定義在主元件裡面):跟speedingscs同一個理由,AdPerformanceReport是獨立的頂層元件,
+// 沒辦法直接取用主元件內部定義的東西,移出來共用一份,不用複製一份重複維護。
+const adPct = (spend, revenue, threshold) => {
+  if (revenue <= 0) return "—";
+  const pct = (spend / revenue) * 100;
+  const isCritical = pct > AD_RATIO_CRITICAL_PCT;
+  const isOverThreshold = !isCritical && threshold != null && pct > threshold; // 超過自訂門檻、但還沒到 30% 的中間警示等級
+  const style = isCritical
+    ? { color: "var(--red)", fontWeight: 700 }
+    : isOverThreshold
+    ? { color: "var(--amber)", fontWeight: 700 }
+    : undefined;
+  return (
+    <span style={style}>
+      {pct.toFixed(0)}%{isCritical ? " ‼" : isOverThreshold ? " ⚠" : ""}
+    </span>
+  );
+};
+
 function buildProductBreakdown(ads, minSpend) {
   const byCode = {};
   let unresolved = 0;
@@ -1395,20 +1415,21 @@ async function exportAdPerformanceToWord({ rows, totalRevenue, totalSpend, total
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             rows: [
-              new TableRow({ children: ["系列", "花費", "業績", "ROAS", "成交數", "平均CPA", "花費佔比"].map(headerCell) }),
+              new TableRow({ children: ["系列", "業績", "花費", "ROAS", "廣告佔比", "平均CPA", "成交數"].map(headerCell) }),
               ...rows.map((r) => {
                 const roas = r.spend > 0 ? r.revenue / r.spend : null;
                 const cpa = r.conversions > 0 ? r.spend / r.conversions : null;
                 const tier = roasTier(roas);
+                const adRatioText = r.revenue > 0 ? `${((r.spend / r.revenue) * 100).toFixed(0)}%` : "—";
                 return new TableRow({
                   children: [
                     dataCell(productNames[r.code] ? `${r.code}(${productNames[r.code]})` : r.code),
-                    dataCell(fmtMoney(r.spend, currencyCode)),
                     dataCell(fmtMoney(r.revenue, currencyCode)),
+                    dataCell(fmtMoney(r.spend, currencyCode)),
                     dataCell(roas !== null ? `${roas.toFixed(2)}x` : "—", tier && tier.color),
-                    dataCell(r.conversions !== null && r.conversions !== undefined ? fmtInt(r.conversions) : "—"),
+                    dataCell(adRatioText),
                     dataCell(cpa !== null ? fmtMoney(cpa, currencyCode) : "—"),
-                    dataCell(`${r.spendShare.toFixed(1)}%`),
+                    dataCell(r.conversions !== null && r.conversions !== undefined ? fmtInt(r.conversions) : "—"),
                   ],
                 });
               }),
@@ -1554,7 +1575,7 @@ function OverallOpsSummary({ ads, ledgerAgg, prevAds, prevLedgerAgg, periodLabel
 // 這支元件原本(另一個對話 session)漏掉了函式宣告那一行,只有內文沒有包起來,會直接造成語法錯誤。
 // 補回宣告——這支元件寫在最外層(跟 roasTier/HorizontalBarChart/exportAdPerformanceToWord 同一層),
 // 不在主 App 元件裡面,所以拿不到 brands/activeBrandId 這些畫面狀態,要透過 props 傳進來,不能用 closure 讀。
-function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, brands, activeBrandId, onEditRoasTarget, minSpend = 500, productNames = {}, onEditProductName, ledgerAgg = null }) {
+function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, brands, activeBrandId, onEditRoasTarget, minSpend = 500, productNames = {}, onEditProductName, ledgerAgg = null, adRatioThreshold }) {
   const displayName = (code) => (productNames[code] ? `${code}(${productNames[code]})` : code);
   const reportRef = useRef(null);
   const [aiInsights, setAiInsights] = useState(null); // null = 還沒生成過,顯示規則統計版當預設
@@ -1731,7 +1752,7 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, b
         <table className="mal-table">
           <thead>
             <tr>
-              <th>系列</th><th>花費</th><th>業績</th><th>ROAS</th><th>成交數</th><th>平均CPA</th><th>花費佔比</th><th>判斷</th>
+              <th>系列</th><th>業績</th><th>花費</th><th>ROAS</th><th>廣告佔比</th><th>平均CPA</th><th>成交數</th><th>判斷</th>
             </tr>
           </thead>
           <tbody>
@@ -1748,12 +1769,12 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, b
                   >
                     {displayName(r.code)}
                   </td>
+                  <td style={{ fontWeight: 700, fontSize: "1.08em" }}>{fmtMoney(r.revenue, currencyCode)}</td>
                   <td>{fmtMoney(r.spend, currencyCode)}</td>
-                  <td>{fmtMoney(r.revenue, currencyCode)}</td>
                   <td style={tier ? { color: tier.color, fontWeight: 700 } : undefined}>{roas !== null ? `${roas.toFixed(2)}x` : "—"}</td>
-                  <td>{r.conversions !== null && r.conversions !== undefined ? fmtInt(r.conversions) : "—"}</td>
+                  <td>{adPct(r.spend, r.revenue, adRatioThreshold)}</td>
                   <td>{cpa !== null ? fmtMoney(cpa, currencyCode) : "—"}</td>
-                  <td>{r.spendShare.toFixed(1)}%</td>
+                  <td>{r.conversions !== null && r.conversions !== undefined ? fmtInt(r.conversions) : "—"}</td>
                   <td style={{ cursor: "pointer" }} title="點一下可以設定/編輯這個代號的判斷" onClick={() => editRowJudgment(r.code)}>
                     {rowJudgments[r.code] ? `${rowJudgments[r.code].icon} ${rowJudgments[r.code].label}` : <span style={{ color: "var(--ink-soft)", fontSize: 12 }}>+ 加判斷</span>}
                   </td>
@@ -4068,24 +4089,7 @@ function MetaAdsLedger() {
     return officialDailyRows.reduce((best, d) => (!best || d.netRevenue > best.netRevenue ? d : best), null);
   }, [officialDailyRows]);
   // threshold 有給且超過時,回傳標紅、加驚嘆號的樣式;沒給 threshold 或沒超過,就是原本的樣式。
-  const AD_RATIO_CRITICAL_PCT = 30; // 廣告費佔比超過這個數字,不管有沒有設定門檻,一律標紅(比黃字警示更嚴重的等級)
-  const adPct = (spend, revenue, threshold) => {
-    if (revenue <= 0) return "—";
-    const pct = (spend / revenue) * 100;
-    const isCritical = pct > AD_RATIO_CRITICAL_PCT;
-    const isOverThreshold = !isCritical && threshold != null && pct > threshold; // 超過自訂門檻、但還沒到 30% 的中間警示等級
-    const style = isCritical
-      ? { color: "var(--red)", fontWeight: 700 }
-      : isOverThreshold
-      ? { color: "var(--amber)", fontWeight: 700 }
-      : undefined;
-    return (
-      <span style={style}>
-        {pct.toFixed(0)}%{isCritical ? " ‼" : isOverThreshold ? " ⚠" : ""}
-      </span>
-    );
-  };
-  // 淨利潤是負的(虧錢)時,用比廣告費佔比超標更重的標紅樣式(深紅底色+粗體),兩種警示程度做出區別。
+  // adPct / AD_RATIO_CRITICAL_PCT 已經移到檔案最上面的頂層,這裡不用重複定義。
   const netProfitCell = (value) => {
     if (value < 0) {
       return (
@@ -4462,6 +4466,7 @@ function MetaAdsLedger() {
               onEditProductName={editProductName}
               minSpend={MIN_AD_SPEND}
               ledgerAgg={activeBrandId === OFFICIAL_SITE_BRAND_ID ? null : aggregateLedgerRange(ledgerByMonth, monthDateRange(focusMonth).since, monthDateRange(focusMonth).until)}
+              adRatioThreshold={adRatioThresholds[activeBrandId]}
             />
           )}
 
@@ -4704,6 +4709,7 @@ function MetaAdsLedger() {
                   onEditProductName={editProductName}
                   minSpend={MIN_AD_SPEND}
                   ledgerAgg={activeBrandId === OFFICIAL_SITE_BRAND_ID ? null : aggregateLedgerRange(ledgerByMonth, focusWeek, addDaysISO(focusWeek, 6))}
+                  adRatioThreshold={adRatioThresholds[activeBrandId]}
                 />
 
                 <CampaignAnalysis ads={focusWeekData.ads} currencyCode={focusWeekData.currency} />
