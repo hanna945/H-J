@@ -69,6 +69,8 @@
   .mal-notice { background: #EEF1E4; border: 1px solid #D8E0C8; color: #5C6B41; font-size: 13px; padding: 10px 16px; border-radius: 10px; margin-bottom: 16px; }
   .mal-error { background: #F3E4E9; border: 1px solid #E3C3D0; color: #8B4A63; font-size: 13px; padding: 10px 16px; border-radius: 10px; margin-bottom: 16px; }
   .mal-empty { border: 1.5px dashed var(--rule); border-radius: 16px; padding: 56px 24px; text-align: center; background: var(--paper-raised); }
+  .mal-plan-savestatus { font-family: 'Noto Sans TC', sans-serif; font-weight: 400; font-size: 12px; color: var(--ink-soft); }
+  .mal-plan-savestatus-error { color: var(--red); font-weight: 700; }
   .mal-empty p { color: var(--ink-soft); font-size: 14px; max-width: 440px; margin: 10px auto 20px; line-height: 1.6; }
   .mal-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 20px; }
   .mal-brand-switch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -475,6 +477,27 @@ const storage = {
   },
 };
 
+// 「嚴格版」存讀——跟上面 storage.get/set 的差異是:連不上雲端/雲端回錯,這裡會直接把錯誤丟出去,
+// 不會悄悄退回讀寫本機。給AI分析存檔這種「使用者會期待存到雲端、跨裝置看得到」的功能用。
+async function storageSetStrict(key, value) {
+  if (!isSharedKey(key)) return localOnlyStorage.set(key, value);
+  if (HAS_SHARED_STORAGE) return await window.storage.set(key, value, true);
+  const status = await probeCloud();
+  if (status !== "connected") {
+    throw new Error(status === "unauthorized" ? "登入身份的金鑰不對,雲端拒絕存取。" : "目前連不上雲端資料庫。");
+  }
+  return await cloudStorage.set(key, value);
+}
+async function storageGetStrict(key) {
+  if (!isSharedKey(key)) return localOnlyStorage.get(key);
+  if (HAS_SHARED_STORAGE) return await window.storage.get(key, true);
+  const status = await probeCloud();
+  if (status !== "connected") {
+    throw new Error(status === "unauthorized" ? "登入身份的金鑰不對,雲端拒絕存取。" : "目前連不上雲端資料庫。");
+  }
+  return await cloudStorage.get(key);
+}
+
 const STORAGE_PREFIX = "metaads-month:";
 function monthKeyFor(brandId, mk) {
   return STORAGE_PREFIX + (brandId ? brandId + "::" : "") + mk;
@@ -681,6 +704,9 @@ const SHOPLINE_MONTH_PREFIX = "shopline-month:";
 // Shopline 週/月資料併入共用範圍,這樣排程 Worker 背景抓回來寫進共用資料庫的資料,網頁打開就能直接讀到,
 // 不用等使用者自己在瀏覽器裡按一次抓取。SHARED_PREFIXES 在更前面已經用 const 宣告過,這裡用 push 而不是重新賦值。
 SHARED_PREFIXES.push(SHOPLINE_WEEK_PREFIX, SHOPLINE_MONTH_PREFIX);
+const ADPERF_AI_WEEK_PREFIX = "adperf-ai-week:";
+const ADPERF_AI_MONTH_PREFIX = "adperf-ai-month:";
+SHARED_PREFIXES.push(ADPERF_AI_WEEK_PREFIX, ADPERF_AI_MONTH_PREFIX);
 function shoplineWeekKey(weekStart) {
   return SHOPLINE_WEEK_PREFIX + weekStart;
 }
@@ -1575,15 +1601,44 @@ function OverallOpsSummary({ ads, ledgerAgg, prevAds, prevLedgerAgg, periodLabel
 // 這支元件原本(另一個對話 session)漏掉了函式宣告那一行,只有內文沒有包起來,會直接造成語法錯誤。
 // 補回宣告——這支元件寫在最外層(跟 roasTier/HorizontalBarChart/exportAdPerformanceToWord 同一層),
 // 不在主 App 元件裡面,所以拿不到 brands/activeBrandId 這些畫面狀態,要透過 props 傳進來,不能用 closure 讀。
-function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, brands, activeBrandId, onEditRoasTarget, minSpend = 500, productNames = {}, onEditProductName, ledgerAgg = null, adRatioThreshold }) {
+function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, brands, activeBrandId, onEditRoasTarget, minSpend = 500, productNames = {}, onEditProductName, ledgerAgg = null, adRatioThreshold, storageKey }) {
   const displayName = (code) => (productNames[code] ? `${code}(${productNames[code]})` : code);
   const reportRef = useRef(null);
-  const [aiInsights, setAiInsights] = useState(null); // null = 還沒生成過,顯示規則統計版當預設
+  const [aiInsights, setAiInsights] = useState(null); // null = 還沒生成過(或還在讀取雲端存檔中),顯示規則統計版當預設
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const [isEditingInsights, setIsEditingInsights] = useState(false);
   const [rowJudgments, setRowJudgments] = useState({}); // { 代號: {icon, label} } AI生成的逐代號短判斷,跟insights同一次呼叫產生
   const [editText, setEditText] = useState("");
+  const [aiSaveStatus, setAiSaveStatus] = useState("");
+  // AI分析結果存到雲端,不然重新整理/換裝置就不見了,跟speedingscs同一套機制。
+  useEffect(() => {
+    if (!storageKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await storageGetStrict(storageKey);
+        if (cancelled || !res || !res.value) return;
+        const saved = JSON.parse(res.value);
+        if (saved.insights) setAiInsights(saved.insights);
+        if (saved.rowJudgments) setRowJudgments(saved.rowJudgments);
+      } catch {
+        /* 沒有存檔或讀取失敗,維持預設(規則統計版) */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [storageKey]);
+  async function persistAiState(nextInsights, nextJudgments) {
+    if (!storageKey) return;
+    setAiSaveStatus("儲存中…");
+    try {
+      await storageSetStrict(storageKey, JSON.stringify({ insights: nextInsights, rowJudgments: nextJudgments }));
+      setAiSaveStatus("已儲存 ✓");
+      setTimeout(() => setAiSaveStatus(""), 2000);
+    } catch (e) {
+      setAiSaveStatus(`⚠ 存檔失敗:${e.message || "未知錯誤"}`);
+    }
+  }
   const { rows: metaRows, totalRevenue: metaTotalRevenue, totalSpend: metaTotalSpend } = buildProductBreakdown(ads, minSpend);
   const { rows, totalRevenue, totalSpend, channelRevenueOnlyRows, grandTotalRevenue } =
     mergeChannelBreakdown(metaRows, metaTotalRevenue, metaTotalSpend, ledgerAgg);
@@ -1629,6 +1684,7 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, b
       setAiInsights(data.insights);
       setRowJudgments(data.rowJudgments || {});
       setIsEditingInsights(false);
+      persistAiState(data.insights, data.rowJudgments || {});
     } catch (e) {
       setAiError(e.message || String(e));
     } finally {
@@ -1648,6 +1704,7 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, b
     });
     setAiInsights(parsed);
     setIsEditingInsights(false);
+    persistAiState(parsed, rowJudgments);
   }
   function editRowJudgment(code) {
     const current = rowJudgments[code];
@@ -1661,15 +1718,23 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, b
       const updated = { ...rowJudgments };
       delete updated[code];
       setRowJudgments(updated);
+      persistAiState(aiInsights, updated);
       return;
     }
     const m = trimmed.match(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F?)\s*(.*)$/u);
-    setRowJudgments({ ...rowJudgments, [code]: m ? { icon: m[1], label: m[2] } : { icon: "🟢", label: trimmed } });
+    const updated = { ...rowJudgments, [code]: m ? { icon: m[1], label: m[2] } : { icon: "🟢", label: trimmed } };
+    setRowJudgments(updated);
+    persistAiState(aiInsights, updated);
   }
   return (
     <div ref={reportRef} className="mal-ad-perf-report">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-        <h2 className="mal-section-title" style={{ marginBottom: 0 }}>投放成效{periodLabel ? `(${periodLabel})` : ""}</h2>
+        <h2 className="mal-section-title" style={{ marginBottom: 0 }}>
+          投放成效{periodLabel ? `(${periodLabel})` : ""}
+          {aiSaveStatus && (
+            <span className={aiSaveStatus.startsWith("⚠") ? "mal-plan-savestatus mal-plan-savestatus-error" : "mal-plan-savestatus"}> · {aiSaveStatus}</span>
+          )}
+        </h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="mal-icon-btn" onClick={() => onEditRoasTarget && onEditRoasTarget(activeBrandId)}>
             ✎ ROAS目標
@@ -2668,7 +2733,7 @@ function MetaAdsLedger() {
     document.body.classList.add("mal-exporting");
     try {
       const target = document.querySelector(".mal-shell");
-      const canvas = await window.html2canvas(target, { scale: 2, backgroundColor: "#FAF7F2", useCORS: true });
+      const canvas = await window.html2canvas(target, { scale: 2, backgroundColor: "#F5F2EC", useCORS: true });
       if (!canvas || !canvas.width || !canvas.height) {
         throw new Error("畫面擷取結果是空的(可能是字型或圖片跨網域限制導致),請重新整理頁面、等待字型與圖片都載入完成後再試一次。");
       }
@@ -4469,6 +4534,7 @@ function MetaAdsLedger() {
               minSpend={MIN_AD_SPEND}
               ledgerAgg={activeBrandId === OFFICIAL_SITE_BRAND_ID ? null : aggregateLedgerRange(ledgerByMonth, monthDateRange(focusMonth).since, monthDateRange(focusMonth).until)}
               adRatioThreshold={adRatioThresholds[activeBrandId]}
+              storageKey={`adperf-ai-month:${activeBrandId}::${focusMonth}`}
             />
           )}
 
@@ -4712,6 +4778,7 @@ function MetaAdsLedger() {
                   minSpend={MIN_AD_SPEND}
                   ledgerAgg={activeBrandId === OFFICIAL_SITE_BRAND_ID ? null : aggregateLedgerRange(ledgerByMonth, focusWeek, addDaysISO(focusWeek, 6))}
                   adRatioThreshold={adRatioThresholds[activeBrandId]}
+                  storageKey={`adperf-ai-week:${activeBrandId}::${focusWeek}`}
                 />
 
                 <CampaignAnalysis ads={focusWeekData.ads} currencyCode={focusWeekData.currency} />
