@@ -302,7 +302,7 @@
   body.mal-exporting .mal-scroll-wrap {
     overflow: visible !important;
   }
-  /* 匯出 PDF 時(html2canvas 截圖),position: sticky 常常截不準,乾脆匯出時關掉凍結效果。 */
+  /* 列印/匯出PDF時,position: sticky 在部分瀏覽器的列印引擎下常常定位不準,乾脆這時候關掉凍結效果。 */
   body.mal-exporting .mal-ledger-table th:first-child,
   body.mal-exporting .mal-ledger-table td:first-child {
     position: static !important;
@@ -2067,7 +2067,6 @@ function MetaAdsLedger() {
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState(null);
   const [apiNotice, setApiNotice] = useState(null);
-  const [pdfExporting, setPdfExporting] = useState(false);
   const [rememberToken, setRememberToken] = useState(false);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [autoSyncStatus, setAutoSyncStatus] = useState(null);
@@ -2681,109 +2680,26 @@ function MetaAdsLedger() {
   function handlePrintClick() {
     // 跟匯出 PDF 一樣,列印前先展開所有收合中的「廣告成效分類」區塊,避免收合的內容沒有印出來。
     window.dispatchEvent(new Event(PERF_EXPAND_ALL_EVENT));
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.print();
-      });
-    });
-  }
-
-  // PDF 匯出用到的 html2canvas / jsPDF 只在真的按下「匯出 PDF」時才動態載入,
-  // 避免每次開頁都要多下載、多解析這兩個不小的函式庫。載入一次後會快取,之後匯出不會重複載入。
-  let pdfLibsLoadingPromise = null;
-  function loadPdfLibsOnce() {
-    if (window.html2canvas && window.jspdf) return Promise.resolve();
-    if (pdfLibsLoadingPromise) return pdfLibsLoadingPromise;
-    const loadScript = (src) =>
-      new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = src;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error(`無法載入 ${src}`));
-        document.head.appendChild(s);
-      });
-    pdfLibsLoadingPromise = Promise.all([
-      loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
-      loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
-    ]).catch((e) => {
-      pdfLibsLoadingPromise = null; // 失敗的話下次還能重試
-      throw e;
-    });
-    return pdfLibsLoadingPromise;
-  }
-
-  async function exportPDF() {
-    setPdfExporting(true);
-    setError(null);
-    try {
-      await loadPdfLibsOnce();
-    } catch (e) {
-      setError("PDF 匯出工具載入失敗,請確認網路連線後再試一次。");
-      setPdfExporting(false);
-      return;
-    }
-    if (!window.html2canvas || !window.jspdf) {
-      setError("PDF 匯出工具還沒載入完成,請確認網路連線後再試一次。");
-      setPdfExporting(false);
-      return;
-    }
-    // 先展開所有收合中的「廣告成效分類」區塊,不然收合的內容不會被截進 PDF 裡。
-    window.dispatchEvent(new Event(PERF_EXPAND_ALL_EVENT));
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    document.body.classList.add("mal-exporting");
-    try {
-      const target = document.querySelector(".mal-shell");
-      const canvas = await window.html2canvas(target, { scale: 2, backgroundColor: "#F5F2EC", useCORS: true });
-      if (!canvas || !canvas.width || !canvas.height) {
-        throw new Error("畫面擷取結果是空的(可能是字型或圖片跨網域限制導致),請重新整理頁面、等待字型與圖片都載入完成後再試一次。");
+    // 「投放成效AI分析」是非同步從雲端讀取的,只等動畫影格(幾毫秒)不夠一次網路來回完成——
+    // 跟speedingscs同一個理由。明確預載入用到的字重,理由也跟speedingscs一樣:document.fonts.status
+    // 顯示穩定不代表特定字重真的可用,瀏覽器畫面會優雅退回但列印引擎不一定同樣寬容。
+    (async () => {
+      try {
+        await Promise.all([
+          document.fonts.load("500 16px 'Noto Serif KR'"),
+          document.fonts.load("600 16px 'Noto Serif KR'"),
+          document.fonts.load("700 16px 'Noto Serif KR'"),
+          document.fonts.load("400 13px 'Noto Sans TC'"),
+          document.fonts.load("600 13px 'Noto Sans TC'"),
+          document.fonts.ready,
+        ]);
+      } catch {
+        /* 個別字重載入失敗也不中斷列印流程 */
       }
-      // 保險做法:不完全依賴 html2canvas 的 backgroundColor 選項——它在某些情況下沒有確實生效,
-      // 導致畫布底層是透明的。而 JPEG 格式不支援透明,轉檔時瀏覽器會把透明的地方補成純黑色,
-      // 這就是「匯出後整頁全黑」的真正原因。這裡用 destination-over 手動把背景色畫到畫布最底層,
-      // 蓋住任何透明的縫隙,確保不管 html2canvas 那邊有沒有成功套用背景色,最後一定是不透明的。
-      const ctx = canvas.getContext("2d");
-      ctx.globalCompositeOperation = "destination-over";
-      ctx.fillStyle = "#FAF7F2";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      const { jsPDF } = window.jspdf;
-
-      // 改成標準 A4(直向),內容太長就自動分頁——不是像之前那樣塞成一張自訂尺寸的超長頁面。
-      // 做法:把整份報表的截圖,依 A4 版面的高度切成好幾段,每段各自貼一頁,靠 jsPDF 頁面本身的邊界自然裁切。
-      // 已知的取捨:這是圖片式分頁,不會刻意避開資料列被硬生生切在兩頁中間的情況(要完全避免需要更複雜的版面量測邏輯,
-      // 這裡先採用業界常見的做法,大部分情況可以接受,如果切點正好卡在重要資料列中間,可以微調瀏覽器縮放比例後重新匯出試試)。
-      const A4_WIDTH_PT = 595.28;
-      const A4_HEIGHT_PT = 841.89;
-      const MARGIN_PT = 24;
-      const contentWidthPt = A4_WIDTH_PT - MARGIN_PT * 2;
-      const contentHeightPt = (canvas.height * contentWidthPt) / canvas.width; // 整份報表等比縮放到 A4 版寬後的總高度
-      const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
-      const imgData = canvas.toDataURL("image/jpeg", 0.95);
-
-      let renderedHeightPt = 0; // 已經畫到第幾個 pt 高度了
-      let isFirstPage = true;
-      while (renderedHeightPt < contentHeightPt) {
-        if (!isFirstPage) pdf.addPage();
-        isFirstPage = false;
-        // 用同一張完整截圖,每頁只是把它往上位移,讓 jsPDF 頁面邊界自然裁出這一頁該顯示的那一段。
-        pdf.addImage(imgData, "JPEG", MARGIN_PT, MARGIN_PT - renderedHeightPt, contentWidthPt, contentHeightPt);
-        renderedHeightPt += A4_HEIGHT_PT - MARGIN_PT * 2;
-      }
-
-      const label =
-        viewMode === "week"
-          ? focusWeek
-            ? `週報-${weekLabel(focusWeek).replace("~", "至")}`
-            : "全部週份"
-          : focusMonth
-          ? monthLabel(focusMonth).replace("/", "-")
-          : "全部月份";
-      pdf.save(`品牌成效分析-${label}.pdf`);
-    } catch (e) {
-      setError("匯出 PDF 失敗:" + e.message);
-    } finally {
-      document.body.classList.remove("mal-exporting");
-      setPdfExporting(false);
-    }
+      setTimeout(() => {
+        requestAnimationFrame(() => window.print());
+      }, 900);
+    })();
   }
 
   async function resetAll() {
@@ -4372,12 +4288,7 @@ function MetaAdsLedger() {
             {refreshAllStatus ? "刷新中…" : "🔄 一鍵更新全部(廣告+Shopline+每日營收)"}
           </button>
           {(sortedKeys.length > 0 || sortedWeekKeys.length > 0) && (
-            <button className="mal-btn mal-print-btn" onClick={handlePrintClick}>🖨 列印</button>
-          )}
-          {(sortedKeys.length > 0 || sortedWeekKeys.length > 0) && (
-            <button className="mal-btn mal-print-btn" disabled={pdfExporting} onClick={exportPDF}>
-              {pdfExporting ? "匯出中…" : "📄 匯出 PDF"}
-            </button>
+            <button className="mal-btn mal-print-btn" onClick={handlePrintClick}>🖨 列印 / 匯出 PDF</button>
           )}
           {sortedKeys.length > 0 && <button className="mal-btn mal-btn-danger" onClick={() => setConfirmReset(true)}>🗑 重置</button>}
         </div>
