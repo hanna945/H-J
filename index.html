@@ -155,16 +155,23 @@
   .mal-table td { text-align: right; padding: 13px 10px; border-bottom: 1px solid var(--rule-soft); font-family: 'IBM Plex Mono', monospace; font-weight: 500; letter-spacing: -0.005em; font-size: 12.5px; }
   .mal-table tr:hover td { background: #F7F2EA; }
   .mal-row-month { font-family: 'Noto Sans TC', sans-serif; font-weight: 600; }
-  .mal-ledger-table th, .mal-ledger-table td { border-right: 1px solid var(--rule); }
+  .mal-ledger-table { background: #FAF6EE; table-layout: fixed; }
+  .mal-ledger-table thead th { background: #EEE4D7; color: #3E3128; }
+  .mal-ledger-table th, .mal-ledger-table td { border-right: 1px solid #DED4C7; color: #3E3128; }
   .mal-ledger-table th:last-child, .mal-ledger-table td:last-child { border-right: none; }
-  .mal-ledger-group-backend { background: #EEF1E4; }
-  .mal-ledger-group-meta { background: #F7EFE0; }
+  .mal-ledger-group-backend { background: #DCE2D6; }
+  .mal-ledger-group-meta { background: #EEE4D7; }
   .mal-ledger-group-gap { background: var(--paper-raised); }
-  .mal-ledger-group-label-backend { color: #5C6B41; }
-  .mal-ledger-group-label-meta { color: #8A6A2E; }
-  /* 表格較寬需要左右滑動時,第一欄(產品代號/日期)凍結不跟著捲動,滑到多右邊都看得到現在是哪一列。 */
+  .mal-ledger-group-label-backend { color: #3E3128; }
+  .mal-ledger-group-label-meta { color: #3E3128; }
+  /* 表格較寬需要左右滑動時,第一欄(產品代號/日期)凍結不跟著捲動,滑到多右邊都看得到現在是哪一列。
+     明確給寬度上限+右側padding,不然sticky欄位的實際渲染寬度可能跟表格版面配置算的不一致,
+     捲動時會蓋住緊接在後面的第一個數據欄,右邊的數字只剩尾數露出來。table-layout:fixed確保
+     這個寬度真的被遵守(auto模式下瀏覽器自己算欄寬,sticky定位可能對不上)。 */
   .mal-ledger-table th:first-child, .mal-ledger-table td:first-child {
     position: sticky; left: 0; z-index: 1; background: var(--paper);
+    min-width: 88px; max-width: 88px; padding-right: 12px; box-sizing: border-box;
+    border-right: 1px solid #8A6B55;
   }
   .mal-ledger-table thead th:first-child { z-index: 2; }
   .mal-ledger-table tr:hover td:first-child { background: #F7F2EA; }
@@ -175,21 +182,22 @@
   .mal-scroll-wrap::-webkit-scrollbar-track { background: var(--rule); border-radius: 999px; }
   .mal-scroll-wrap::-webkit-scrollbar-thumb { background: var(--blue); border-radius: 999px; border: 2px solid var(--rule); }
   /* 矩陣表格裡,每個產品代號區塊(4欄一組:營收/廣告費/廣告費佔比/淨利潤)交替上底色,
-     跟相鄰的代號區塊、以及跟最左邊的「全店」區塊都要能一眼分辨,滑動時才不會看錯欄位屬於哪個代號。 */
-  .mal-matrix-group-a { background: #D9EBE0; }
-  .mal-matrix-group-b { background: #F3D9E3; }
-  .mal-matrix-group-a-label { color: #1F4A36; }
-  .mal-matrix-group-b-label { color: #6B1F3D; }
-  .mal-matrix-group-start { border-left: 3px solid var(--ink) !important; }
+     跟相鄰的代號區塊、以及跟最左邊的「全店」區塊都要能一眼分辨,滑動時才不會看錯欄位屬於哪個代號。
+     配色改用低飽和的鼠尾草灰/裸粉灰,不要用薄荷綠/糖果粉那種高飽和色塊——背景不能比數字搶眼。 */
+  .mal-matrix-group-a { background: #DCE2D6; }
+  .mal-matrix-group-b { background: #E7D8D2; }
+  .mal-matrix-group-a-label { color: #3E3128; }
+  .mal-matrix-group-b-label { color: #3E3128; }
+  .mal-matrix-group-start { border-left: 1.5px solid #8A6B55 !important; }
   /* 代號名稱那一列(colspan 跨欄的標題列)用更深的底色,這是使用者掃視時第一個對到的視覺錨點,
      要比底下的資料格更搶眼,才能在快速滑動表格時一眼認出「現在在哪個代號底下」。 */
-  .mal-matrix-group-a-header { background: #A9CDBA !important; }
-  .mal-matrix-group-b-header { background: #E3A9C0 !important; }
-  /* 「後台實際數據」區塊——刻意用金色調,跟矩陣表格裡代號分組的綠/粉紅是完全不同的視覺語言,
+  .mal-matrix-group-a-header { background: #C7D0BF !important; color: #3E3128; }
+  .mal-matrix-group-b-header { background: #DBC5BD !important; color: #3E3128; }
+  /* 「後台實際數據」區塊——用焦糖重點色,跟矩陣表格裡代號分組的鼠尾草灰/裸粉灰是不同的視覺語言,
      不會讓人誤會兩者是同一套系統;這裡要表達的是「這欄是可信的後台真實數字」,不是分組用途。 */
-  .mal-backend-group-header { background: #D4A537 !important; color: #3A2E0A; font-weight: 700; border-left: 3px solid #8A6D1F !important; }
-  .mal-backend-group { background: #FBF0D6; }
-  .mal-backend-group-start { border-left: 3px solid #8A6D1F !important; }
+  .mal-backend-group-header { background: #9C653B !important; color: #FAF6EE; font-weight: 700; border-left: 1.5px solid #7A4E2D !important; }
+  .mal-backend-group { background: #EEE4D7; }
+  .mal-backend-group-start { border-left: 1.5px solid #9C653B !important; }
   .mal-icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-soft); padding: 4px; font-size: 14px; }
   .mal-icon-btn:hover { color: var(--red); }
   .mal-icon-btn:disabled { opacity: 0.5; cursor: default; }
