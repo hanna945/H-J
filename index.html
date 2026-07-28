@@ -297,7 +297,7 @@
     /* 手機版操作區分成三段,不是全部塞進同一個2欄grid(那樣一定會有一格留白)。
        外層改成直向排列,各子區獨立處理,彼此不共用格線。 */
     .mal-header-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-    .mal-header-actions-full, .mal-header-actions-secondary, .mal-header-actions-reset-row { display: grid; gap: 8px; }
+    .mal-header-actions-full, .mal-header-actions-secondary, .mal-header-actions-reset-row { display: grid; gap: 8px; width: 100%; align-self: stretch; }
     /* 「一鍵更新全部」文字很長,單獨一列滿版,46px高 */
     .mal-header-actions-full { grid-template-columns: 1fr; }
     .mal-header-actions-full .mal-btn { height: 46px; font-size: 12.5px; padding: 0 10px; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -4339,7 +4339,7 @@ function MetaAdsLedger() {
           <div className="mal-header-actions-secondary">
             {!HAS_SHARED_STORAGE && (
               <button className="mal-btn" onClick={() => { setTeamKeyInput(getTeamKey()); setShowTeamKeyModal(true); }}>
-                {cloudStatus === "connected" ? `☁️ ${credentialName || "已連線"}` : "🔑 每日收益表密碼"}
+                {cloudStatus === "connected" ? <><span className="mal-btn-emoji">☁️</span> {credentialName || "已連線"}</> : <><span className="mal-btn-emoji">🔑</span> 每日收益表密碼</>}
               </button>
             )}
             {activeBrandId === ONEPAGE_BRAND_ID && (
