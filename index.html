@@ -156,11 +156,11 @@
   .mal-table tr:hover td { background: #F7F2EA; }
   .mal-row-month { font-family: 'Noto Sans TC', sans-serif; font-weight: 600; }
   .mal-ledger-table { background: #FAF6EE; table-layout: fixed; }
-  .mal-ledger-table thead th { background: #EEE4D7; color: #3E3128; }
+  .mal-ledger-table thead th { background: #EEE4D8; color: #3E3128; }
   .mal-ledger-table th, .mal-ledger-table td { border-right: 1px solid #DED4C7; color: #3E3128; }
   .mal-ledger-table th:last-child, .mal-ledger-table td:last-child { border-right: none; }
-  .mal-ledger-group-backend { background: #DCE2D6; }
-  .mal-ledger-group-meta { background: #EEE4D7; }
+  .mal-ledger-group-backend { background: #DDD5C8; }
+  .mal-ledger-group-meta { background: #E3D6CF; }
   .mal-ledger-group-gap { background: var(--paper-raised); }
   .mal-ledger-group-label-backend { color: #3E3128; }
   .mal-ledger-group-label-meta { color: #3E3128; }
@@ -184,15 +184,15 @@
   /* 矩陣表格裡,每個產品代號區塊(4欄一組:營收/廣告費/廣告費佔比/淨利潤)交替上底色,
      跟相鄰的代號區塊、以及跟最左邊的「全店」區塊都要能一眼分辨,滑動時才不會看錯欄位屬於哪個代號。
      配色改用低飽和的鼠尾草灰/裸粉灰,不要用薄荷綠/糖果粉那種高飽和色塊——背景不能比數字搶眼。 */
-  .mal-matrix-group-a { background: #DCE2D6; }
-  .mal-matrix-group-b { background: #E7D8D2; }
+  .mal-matrix-group-a { background: #F1EBE2; }
+  .mal-matrix-group-b { background: #F4ECE7; }
   .mal-matrix-group-a-label { color: #3E3128; }
   .mal-matrix-group-b-label { color: #3E3128; }
   .mal-matrix-group-start { border-left: 1.5px solid #8A6B55 !important; }
   /* 代號名稱那一列(colspan 跨欄的標題列)用更深的底色,這是使用者掃視時第一個對到的視覺錨點,
      要比底下的資料格更搶眼,才能在快速滑動表格時一眼認出「現在在哪個代號底下」。 */
-  .mal-matrix-group-a-header { background: #C7D0BF !important; color: #3E3128; }
-  .mal-matrix-group-b-header { background: #DBC5BD !important; color: #3E3128; }
+  .mal-matrix-group-a-header { background: #DDD5C8 !important; color: #3E3128; }
+  .mal-matrix-group-b-header { background: #E3D6CF !important; color: #3E3128; }
   /* 「後台實際數據」區塊——用焦糖重點色,跟矩陣表格裡代號分組的鼠尾草灰/裸粉灰是不同的視覺語言,
      不會讓人誤會兩者是同一套系統;這裡要表達的是「這欄是可信的後台真實數字」,不是分組用途。 */
   .mal-backend-group-header { background: #9C653B !important; color: #FAF6EE; font-weight: 700; border-left: 1.5px solid #7A4E2D !important; }
