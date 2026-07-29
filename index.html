@@ -74,16 +74,19 @@
   .mal-btn-danger:hover { background: #F3E4E9; box-shadow: none; }
   .mal-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
   .mal-header .mal-btn-primary { background: var(--blue-deep); border-color: var(--blue-deep); color: var(--paper-raised); }
-  .mal-notice { background: #F2EEE5; border: 1px solid #DDD4C7; color: #66594E; font-size: 13px; padding: 10px 16px; border-radius: 5px; margin-bottom: 16px; }
+  .mal-notice { background: #F2EEE5; border: 1px solid #DDD4C7; color: #66594E; font-size: 13px; padding: 10px 14px; border-radius: 5px; margin-bottom: 10px; min-height: 44px; display: flex; align-items: center; box-sizing: border-box; box-shadow: none; }
+  .mal-notice:last-of-type { margin-bottom: 16px; }
   .mal-notice-syncing { background: #F3EBDD; border-color: #DFD1BD; color: #7A624E; }
-  .mal-threshold-group { margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px; }
+  .mal-threshold-group { margin-bottom: 20px; background: var(--paper-raised); border: 1px solid var(--rule-soft); border-radius: 5px; box-shadow: none; overflow: hidden; }
   .mal-threshold-row {
     display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
-    background: var(--paper-raised); border: 1px solid var(--rule-soft); border-radius: 5px; padding: 10px 14px;
+    padding: 0 14px; min-height: 60px; border-bottom: 1px solid var(--rule-soft);
   }
+  .mal-threshold-row:last-child { border-bottom: none; }
   .mal-threshold-label { font-size: 12.5px; color: var(--ink-secondary); flex-shrink: 0; }
-  .mal-threshold-value { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--num-ink); flex: 1; min-width: 60px; }
-  .mal-threshold-btn { height: 40px; padding: 0 16px; font-size: 12.5px; flex-shrink: 0; }
+  .mal-threshold-value { font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 13px; color: #76685D; flex: 1; min-width: 60px; }
+  .mal-threshold-value.mal-threshold-value-set { color: #7A563D; }
+  .mal-threshold-btn { height: 38px; padding: 0 15px; font-size: 12.5px; font-weight: 500; flex-shrink: 0; box-shadow: none; }
   .mal-error { background: #F3E4E9; border: 1px solid #E3C3D0; color: #8B4A63; font-size: 13px; padding: 10px 16px; border-radius: 5px; margin-bottom: 16px; }
   .mal-empty { border: 1.5px dashed var(--rule); border-radius: 6px; padding: 56px 24px; text-align: center; background: var(--paper-raised); }
   .mal-plan-savestatus { font-family: 'Noto Sans TC', sans-serif; font-weight: 400; font-size: 12px; color: var(--ink-soft); }
@@ -4423,7 +4426,7 @@ function MetaAdsLedger() {
         <div className="mal-threshold-group">
           <div className="mal-threshold-row">
             <span className="mal-threshold-label">CPA 過高標準</span>
-            <strong className="mal-threshold-value">
+            <strong className={`mal-threshold-value${cpaThresholds[activeBrandId] != null ? " mal-threshold-value-set" : ""}`}>
               {cpaThresholds[activeBrandId] != null ? `$${cpaThresholds[activeBrandId]}` : "尚未設定"}
             </strong>
             <button className="mal-btn mal-threshold-btn" onClick={() => editCpaThreshold(activeBrandId)}>
