@@ -477,8 +477,10 @@ const localOnlyStorage = {
 };
 // 以下這些 key 存的是「報表資料/品牌設定」,大家看到的要是同一份,所以存到共用空間(shared: true)。
 // Meta API 金鑰、帳號ID、記住金鑰的開關、自動同步設定、Shopline Worker 網址——這些是個人的登入憑證/個人設定,絕對不能共用,只存在自己瀏覽器(shared: false)。
-// 這份檔案跟 speedingscs 那套系統不一樣:只有「後台每日收益表」(帳本)需要團隊共用,
-// 其餘(Meta 廣告成效資料、品牌清單、CPA/廣告佔比門檻)維持原本各自瀏覽器本機儲存,不動既有行為、不擴大共用範圍。
+// 2026-07-30起:Meta 廣告成效資料也併入共用範圍了(原本這裡寫「維持各自瀏覽器」是舊版行為,
+// 已經在下面 SHARED_PREFIXES.push(STORAGE_PREFIX, WEEK_STORAGE_PREFIX) 那段改掉,不用被這段舊註解誤導)。
+// 目前團隊共用的:後台每日收益表(帳本)、Meta 廣告成效資料。個人專屬、不共用的:
+// Meta API 金鑰、帳號ID、記住金鑰的開關、自動同步設定、Shopline Worker 網址——這些是登入憑證/個人設定。
 // 這三個 key 雖然不是「metaads-」開頭的資料表 key,但邏輯上也應該全隊共用(不是個人瀏覽器設定):
 // 品牌清單、CPA過高標準、廣告費佔比過高標準——你在自己電腦上設定的門檻,同事打開網頁應該要看到一樣的警示,
 // 而不是各自要重新設一次。跟 speedingscs 那邊保持同一份清單。
@@ -836,6 +838,14 @@ SHARED_PREFIXES.push(SHOPLINE_WEEK_PREFIX, SHOPLINE_MONTH_PREFIX);
 const ADPERF_AI_WEEK_PREFIX = "adperf-ai-week:";
 const ADPERF_AI_MONTH_PREFIX = "adperf-ai-month:";
 SHARED_PREFIXES.push(ADPERF_AI_WEEK_PREFIX, ADPERF_AI_MONTH_PREFIX);
+// 2026-07-30 修正:Meta 廣告成效資料(metaads-month:/metaads-week:)原本沒被納入共用範圍,
+// 導致每個瀏覽器/裝置都各自獨立對 Meta 抓一次同樣的資料——跟排程 Worker(brand-report-cron-sync)
+// 用的是完全同一組 key 格式,卻各自存在自己瀏覽器,互相看不到對方已經抓過的結果。這是遺漏,
+// 不是刻意設計(旁邊的 Shopline、AI分析資料都已經是共用的)。併入共用範圍後,不管是同事的瀏覽器、
+// 排程 Worker、還是 speedingscs,只要有任何一邊抓到某週/某月的資料,其他人打開就能直接讀到,
+// 不會重複對同一個廣告帳號打 Meta API——在 Meta App 目前是 Dev Tier(每帳號每小時300次請求)
+// 這種嚴格額度下,這是真正能大幅降低同一帳號總請求量的做法,而不是只優化單次查詢本身。
+SHARED_PREFIXES.push(STORAGE_PREFIX, WEEK_STORAGE_PREFIX);
 function shoplineWeekKey(weekStart) {
   return SHOPLINE_WEEK_PREFIX + weekStart;
 }
