@@ -4211,6 +4211,15 @@ function MetaAdsLedger() {
   const focusDayIdx = activeFocusDay ? sortedDailyDays.findIndex((d) => d.date === activeFocusDay) : -1;
   const prevDayRecord = focusDayIdx > 0 ? sortedDailyDays[focusDayIdx - 1] : null;
   const dailyMatrixCodes = dailyMonthRecord ? dailyMonthRecord.productCodes : [];
+  // 真實Shopline訂單金額(不是試算表手動打的數字,是直接從Shopline後台訂單資料算出來的)——
+  // shoplineMonthsData是refreshAllData裡全域載入的,不分品牌,一頁業績這裡直接讀同一份就有,
+  // 不用額外開新的抓取路徑。用日期(YYYY-MM-DD)當key,方便跟矩陣總覽逐日的列對起來。
+  const shopeRealDailyMap = useMemo(() => {
+    const monthRecord = activeDailyMonth ? shoplineMonthsData[activeDailyMonth] : null;
+    if (!monthRecord || !monthRecord.orders) return {};
+    const grouped = groupShoplineOrdersByDay(monthRecord.orders);
+    return Object.fromEntries(grouped.map((g) => [g.date, g]));
+  }, [shoplineMonthsData, activeDailyMonth]);
 
   // 官網業績「每日報表」用:邏輯跟上面一頁業績那套完全一樣(月份分頁 → 選一天/矩陣總覽,自動帶入今天或最新一天有資料的日期),
   // 只是資料源換成 shoplineMonthsData(Shopline 訂單),不是 ledgerByMonth(Google 試算表帳本)。
@@ -5373,6 +5382,7 @@ function MetaAdsLedger() {
                       <tr>
                         <th rowSpan={2} style={{ verticalAlign: "bottom" }}>日期</th>
                         <th colSpan={4} className="mal-ledger-group-backend mal-ledger-group-label-backend" style={{ textAlign: "center" }}>🏬 全店</th>
+                        <th colSpan={2} className="mal-ledger-group-backend mal-ledger-group-label-backend" style={{ textAlign: "center" }}>✅ 真實Shopline訂單</th>
                         {dailyMatrixCodes.map((code, i) => (
                           <th
                             key={code}
@@ -5389,6 +5399,8 @@ function MetaAdsLedger() {
                         <th className="mal-ledger-group-backend">廣告費</th>
                         <th className="mal-ledger-group-backend">廣告費佔比</th>
                         <th className="mal-ledger-group-backend">淨利潤</th>
+                        <th className="mal-ledger-group-backend mal-matrix-group-start">訂單數</th>
+                        <th className="mal-ledger-group-backend">實收營收</th>
                         {dailyMatrixCodes.map((code, i) => {
                           const tone = `mal-matrix-group-${i % 2 === 0 ? "a" : "b"}`;
                           return (
@@ -5410,6 +5422,8 @@ function MetaAdsLedger() {
                           <td className="mal-ledger-group-backend">{fmtMoney(d.overall.adSpend)}</td>
                           <td className="mal-ledger-group-backend">{adPct(d.overall.adSpend, d.overall.revenue, adRatioThresholds[activeBrandId])}</td>
                           <td className="mal-ledger-group-backend">{netProfitCell(d.overall.netProfit)}</td>
+                          <td className="mal-ledger-group-backend mal-matrix-group-start">{shopeRealDailyMap[d.date] ? shopeRealDailyMap[d.date].orderCount : "—"}</td>
+                          <td className="mal-ledger-group-backend">{shopeRealDailyMap[d.date] ? fmtMoney(shopeRealDailyMap[d.date].netRevenue) : "—"}</td>
                           {dailyMatrixCodes.map((code, i) => {
                             const v = d.byCode[code];
                             const tone = `mal-matrix-group-${i % 2 === 0 ? "a" : "b"}`;
