@@ -4003,6 +4003,8 @@ function MetaAdsLedger() {
     if (!force) {
       const lastRunRes = await storage.get(AUTO_SYNC_DATE_KEY).catch(() => null);
       if (lastRunRes && lastRunRes.value === todayStr) return; // 今天已經自動同步過了(手動按「刷新全部」不受這個限制)
+      // 同樣的道理:確定要跑就立刻寫入日期,不要等流程跑完才寫,避免同步進行中被重複觸發。
+      await storage.set(AUTO_SYNC_DATE_KEY, todayStr).catch(() => {});
     }
 
     const RECENT_MONTHS = 3; // 當月 + 前2個月,定義跟「快速補3月」一致
@@ -4090,6 +4092,12 @@ function MetaAdsLedger() {
       const todayStr = new Date().toISOString().slice(0, 10);
       const lastRunRes = await storage.get(AUTO_SYNC_DATE_KEY).catch(() => null);
       if (lastRunRes && lastRunRes.value === todayStr) return;
+      // 關鍵修正:自動同步(非force)一旦確定要跑,立刻把「今天跑過了」寫進去,不要等整個流程
+      // (可能超過1分鐘)跑完才寫。不然使用者在同步跑到一半時重新整理頁面,新的頁面載入會看到
+      // 這個key還沒寫入、以為今天還沒跑過,又觸發一次自動同步——兩個同步流程同時打同一個
+      // 廣告帳號,很容易撞到Meta的頻率限制(錯誤代碼1/99)。手動按「刷新全部」(force=true)
+      // 不受這個保護限制,一律照使用者要求執行。
+      await storage.set(AUTO_SYNC_DATE_KEY, todayStr).catch(() => {});
     }
     setRefreshAllStatus("整理中… 官網 / 一頁廣告成效");
     let metaOk = true;
