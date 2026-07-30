@@ -1244,11 +1244,13 @@ function fmtSyncedAt(iso) {
 }
 // 資料是「什麼時候抓的」提示,這個時間點是「最後一次成功呼叫 Meta API 的當下」,不是「資料涵蓋到哪一天」。
 // 舊資料(這次修改之前就存在 KV 裡的)沒有這個欄位,顯示「—」而不是硬猜一個時間,避免誤導。
-function SyncedAtNote({ iso }) {
+const SOURCE_LABEL = { manual: "已手動更新", auto: "已自動更新", cron: "已自動更新" };
+function SyncedAtNote({ iso, source }) {
   const text = fmtSyncedAt(iso);
+  const sourceLabel = source && SOURCE_LABEL[source] ? SOURCE_LABEL[source] : "";
   return (
     <p className="mal-synced-at">
-      🕒 資料更新於:{text || "— (舊資料,尚無記錄;重新抓取後就會有)"}
+      🕒 {text ? `${text}${sourceLabel ? sourceLabel : "更新"}` : "— (舊資料,尚無記錄;重新抓取後就會有)"}
     </p>
   );
 }
@@ -2644,6 +2646,7 @@ function MetaAdsLedger() {
         until: info.until,
         relax: "true",
       });
+      record.source = "manual";
       await storage.set(weekKeyFor(activeBrandId, info.weekStart), JSON.stringify(record));
       setWeekInfo(info);
       await loadAllWeeks(activeBrandId);
@@ -2675,6 +2678,7 @@ function MetaAdsLedger() {
         until,
         relax: "false",
       });
+      record.source = "manual";
       await storage.set(monthKeyFor(activeBrandId, monthKey), JSON.stringify(record));
       setFocusMonth(monthKey);
       await loadAll(activeBrandId);
@@ -3285,6 +3289,7 @@ function MetaAdsLedger() {
       const info = getLastWeekRange(tzOffset);
       const record = await fetchInsightsForRange(apiToken.trim(), cleanId, info.since, info.until, true);
       const brandIdToUse = await ensureBrandRegistered(cleanId);
+      record.source = "manual";
       await storage.set(weekKeyFor(brandIdToUse, info.weekStart), JSON.stringify(record));
       setActiveBrandId(brandIdToUse);
       setWeekInfo(info);
@@ -3329,6 +3334,7 @@ function MetaAdsLedger() {
         try {
           const info = getLastWeekRange(tzOffset, w);
           const record = await fetchInsightsForRange(apiToken.trim(), cleanId, info.since, info.until, true);
+          record.source = "manual";
           await storage.set(weekKeyFor(brandIdToUse, info.weekStart), JSON.stringify(record));
           lastInfo = info;
           successCount++;
@@ -3852,6 +3858,7 @@ function MetaAdsLedger() {
       const lastDay = new Date(y, m, 0).getDate();
       const until = `${apiMonth}-${String(lastDay).padStart(2, "0")}`;
       const record = await callMetaWorker("/api/meta/insights", { accountId: activeBrandId, since, until, relax: "false" });
+      record.source = "manual";
       await storage.set(monthKeyFor(activeBrandId, apiMonth), JSON.stringify(record));
       await loadAll(activeBrandId);
       setFocusMonth(apiMonth);
@@ -3892,12 +3899,14 @@ function MetaAdsLedger() {
           const weekRangeForThisBrand = getLastWeekRange(tzOffset);
           lastWeekRangeUsed = weekRangeForThisBrand;
           const record = await fetchInsightsForRange(apiToken.trim(), b.id, weekRangeForThisBrand.since, weekRangeForThisBrand.until, true);
+          record.source = "manual";
           await storage.set(weekKeyFor(b.id, weekRangeForThisBrand.weekStart), JSON.stringify(record));
           setBatchProgress((prev) =>
             prev.map((p, idx) => (idx === i ? { ...p, status: record.ads.length ? "done" : "empty", message: `${record.ads.length} 支廣告` } : p))
           );
         } else {
           const record = await fetchOneBrandMonth(apiToken.trim(), b.id, apiMonth);
+          record.source = "manual";
           await storage.set(monthKeyFor(b.id, apiMonth), JSON.stringify(record));
           setBatchProgress((prev) =>
             prev.map((p, idx) => (idx === i ? { ...p, status: record.ads.length ? "done" : "empty", message: `${record.ads.length} 支廣告` } : p))
@@ -3948,6 +3957,7 @@ function MetaAdsLedger() {
         setBatchProgress((prev) => prev.map((p, idx) => (idx === m ? { ...p, status: "running" } : p)));
         try {
           const record = await fetchOneBrandMonth(apiToken.trim(), cleanId, monthKey);
+          record.source = "manual";
           await storage.set(monthKeyFor(brandIdToUse, monthKey), JSON.stringify(record));
           successCount++;
           setBatchProgress((prev) =>
@@ -4040,6 +4050,7 @@ function MetaAdsLedger() {
             const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
             const until = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
             const record = await callMetaWorker("/api/meta/insights", { accountId: t.id, since, until, relax: "false" });
+            record.source = "auto";
             await storage.set(monthKeyFor(t.id, monthKey), JSON.stringify(record));
             successCount++;
           } catch { errorCount++; }
@@ -4055,6 +4066,7 @@ function MetaAdsLedger() {
           }
           try {
             const record = await callMetaWorker("/api/meta/insights", { accountId: t.id, since: info.since, until: info.until, relax: "true" });
+            record.source = "auto";
             await storage.set(weekKeyFor(t.id, info.weekStart), JSON.stringify(record));
             successCount++;
           } catch { errorCount++; }
@@ -4550,7 +4562,7 @@ function MetaAdsLedger() {
 
           {focusData && (
             <>
-              <SyncedAtNote iso={focusData.syncedAt} />
+              <SyncedAtNote iso={focusData.syncedAt} source={focusData.source} />
               <OverallOpsSummary
                 key={`ops::${activeBrandId}::${focusMonth}`}
                 ads={focusData.ads}
@@ -4784,7 +4796,7 @@ function MetaAdsLedger() {
 
             {focusWeekData && (
               <>
-                <SyncedAtNote iso={focusWeekData.syncedAt} />
+                <SyncedAtNote iso={focusWeekData.syncedAt} source={focusWeekData.source} />
                 <OverallOpsSummary
                   key={`ops::${activeBrandId}::${focusWeek}`}
                   ads={focusWeekData.ads}
