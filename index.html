@@ -4037,6 +4037,11 @@ function MetaAdsLedger() {
         const tz = await callMetaWorker("/api/meta/timezone", { accountId: t.id });
 
         // 月份:m=0 是當月,每次都重新抓;m=1、m=2 是已結束的月份,缺了才補。
+        // 2026-07-30新增「新鮮度」判斷:當月資料如果最近幾小時內剛被更新過(不管是誰更新的——
+        // 你自己另一台裝置、同事、speedingscs、或cron排程),就不用再重抓一次,直接沿用。
+        // 這是為了避免「每次打開頁面都自動重打Meta API」造成額度浪費(Meta App目前是Dev Tier,
+        // 額度是每帳號每小時300次,不必要的重複抓取在這種嚴格額度下代價很高)。
+        const FRESH_ENOUGH_MS = 3 * 3600 * 1000; // 3小時內更新過就算新鮮,不用重抓
         const now = new Date();
         for (let m = 0; m < RECENT_MONTHS; m++) {
           const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
@@ -4044,6 +4049,16 @@ function MetaAdsLedger() {
           if (m > 0) {
             const existing = await storage.get(monthKeyFor(t.id, monthKey)).catch(() => null);
             if (existing) continue; // 已結束的月份,已經抓過就跳過
+          } else {
+            // 當月:檢查現有資料新不新鮮,新鮮就跳過,不要每次打開頁面都重抓。
+            const existingRaw = await storage.get(monthKeyFor(t.id, monthKey)).catch(() => null);
+            if (existingRaw && existingRaw.value) {
+              try {
+                const existingRecord = JSON.parse(existingRaw.value);
+                const syncedAtMs = existingRecord.syncedAt ? new Date(existingRecord.syncedAt).getTime() : 0;
+                if (syncedAtMs && Date.now() - syncedAtMs < FRESH_ENOUGH_MS) continue; // 夠新鮮,跳過這個月
+              } catch { /* 舊格式或解析失敗,當作沒有新鮮度資訊,照原本邏輯繼續重抓 */ }
+            }
           }
           try {
             const since = `${monthKey}-01`;
@@ -4063,6 +4078,15 @@ function MetaAdsLedger() {
           if (w > 1) {
             const existing = await storage.get(weekKeyFor(t.id, info.weekStart)).catch(() => null);
             if (existing) continue;
+          } else {
+            const existingRaw = await storage.get(weekKeyFor(t.id, info.weekStart)).catch(() => null);
+            if (existingRaw && existingRaw.value) {
+              try {
+                const existingRecord = JSON.parse(existingRaw.value);
+                const syncedAtMs = existingRecord.syncedAt ? new Date(existingRecord.syncedAt).getTime() : 0;
+                if (syncedAtMs && Date.now() - syncedAtMs < FRESH_ENOUGH_MS) continue;
+              } catch { /* 忽略解析失敗,照原本邏輯繼續 */ }
+            }
           }
           try {
             const record = await callMetaWorker("/api/meta/insights", { accountId: t.id, since: info.since, until: info.until, relax: "true" });
