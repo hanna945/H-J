@@ -956,6 +956,15 @@ function groupShoplineOrdersByDay(orders) {
     });
   return Object.values(byDay).sort((a, b) => (a.date < b.date ? 1 : -1));
 }
+// 整段期間(一整個月或一整週)的真實Shopline訂單總計,不拆到逐日——用在每月/每週報表這種只要看
+// 總數的地方,跟上面逐日分組共用同一套篩選條件(已完成、未取消)。
+function sumShoplineOrders(orders) {
+  const valid = (orders || []).filter((o) => o.paymentStatus === "completed" && o.status !== "cancelled");
+  return {
+    orderCount: valid.length,
+    netRevenue: valid.reduce((sum, o) => sum + (o.amount || 0), 0),
+  };
+}
 
 const LEGACY_DEFAULT_BRAND_IDS = [
   "2345685238995965",
@@ -4636,6 +4645,15 @@ function MetaAdsLedger() {
                   <div className="mal-card-value">{focusData.roas !== null ? `${focusData.roas.toFixed(2)}x` : "—"}</div>
                   <DeltaBadge value={pctChange(focusData.roas, prevData && prevData.roas)} />
                 </div>
+                {activeBrandId === ONEPAGE_BRAND_ID && shoplineMonthsData[focusMonth] && (
+                  <div className="mal-card">
+                    <div className="mal-card-label">✅ 真實Shopline訂單(整月)</div>
+                    <div className="mal-card-value">{fmtMoney(sumShoplineOrders(shoplineMonthsData[focusMonth].orders).netRevenue)}</div>
+                    <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>
+                      {sumShoplineOrders(shoplineMonthsData[focusMonth].orders).orderCount} 筆訂單(非試算表數字)
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -4885,6 +4903,15 @@ function MetaAdsLedger() {
                       {focusWeekData.spend > 0 && focusWeekData.revenue > 0 ? `${(focusWeekData.revenue / focusWeekData.spend).toFixed(2)}x` : "—"}
                     </div>
                   </div>
+                  {activeBrandId === ONEPAGE_BRAND_ID && shoplineWeeksData[focusWeek] && (
+                    <div className="mal-card">
+                      <div className="mal-card-label">✅ 真實Shopline訂單(整週)</div>
+                      <div className="mal-card-value">{fmtMoney(sumShoplineOrders(shoplineWeeksData[focusWeek].orders).netRevenue)}</div>
+                      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>
+                        {sumShoplineOrders(shoplineWeeksData[focusWeek].orders).orderCount} 筆訂單(非試算表數字)
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mal-week-analysis">
