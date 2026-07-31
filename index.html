@@ -5313,6 +5313,15 @@ function MetaAdsLedger() {
                         <div className="mal-card-label">🏬 全店淨利潤</div>
                         <div className="mal-card-value">{netProfitCell(focusDayRecord.overall.netProfit)}</div>
                       </div>
+                      {shopeRealDailyMap[activeFocusDay] && (
+                        <div className="mal-card">
+                          <div className="mal-card-label">✅ 真實Shopline訂單</div>
+                          <div className="mal-card-value">{fmtMoney(shopeRealDailyMap[activeFocusDay].netRevenue)}</div>
+                          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>
+                            {shopeRealDailyMap[activeFocusDay].orderCount} 筆訂單(非試算表數字,直接來自Shopline後台)
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <h2 className="mal-section-title">
