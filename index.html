@@ -927,6 +927,20 @@ function matchShoplineOrdersToAds(shoplineOrders, ads) {
     .sort((a, b) => b.shoplineRevenue - a.shoplineRevenue);
   return { rows, unmatched, matchedOrderCount: validOrders.length - unmatched.orderCount, totalValidOrders: validOrders.length };
 }
+// 「通路」(錢從哪個平台來:SHOPLINE、GOOGLE、蝦皮、MOMO、門市、經銷…)跟「產品類別」(賣的是什麼:
+// SR、UV、SL…)是兩個完全不同的維度,矩陣總覽/選一天顯示時,通路排前面、產品類別排後面,不要混在
+// 同一組裡讓人分不清楚在看什麼。這份清單是目前已知會出現的通路型代號,如果之後試算表新增了其他
+// 通路名稱,這裡也要跟著補。SHOPLINE的代號通常很長(整段文字含「簡訊費」之類的備註),用includes判斷。
+const KNOWN_CHANNEL_CODES = new Set(["SHOPIFY", "蝦皮", "MOMO", "門市", "經銷", "LINE 禮物", "GOOGLE"]);
+function isChannelCode(code) {
+  return KNOWN_CHANNEL_CODES.has(code) || (code || "").includes("SHOPLINE");
+}
+// 把一組代號依「通路優先、產品類別在後」重新排序,組內原本的順序(試算表欄位出現順序)維持不變。
+function sortCodesChannelFirst(codes) {
+  const channels = codes.filter(isChannelCode);
+  const products = codes.filter((c) => !isChannelCode(c));
+  return { channels, products, sorted: [...channels, ...products] };
+}
 function fmtDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -4262,7 +4276,9 @@ function MetaAdsLedger() {
   // 不跨月(如果focusDay是這個月第一天,就沒有前一天可比,這跟月報表/週報表比不到「上一期」是同樣的道理)。
   const focusDayIdx = activeFocusDay ? sortedDailyDays.findIndex((d) => d.date === activeFocusDay) : -1;
   const prevDayRecord = focusDayIdx > 0 ? sortedDailyDays[focusDayIdx - 1] : null;
-  const dailyMatrixCodes = dailyMonthRecord ? dailyMonthRecord.productCodes : [];
+  const dailyMatrixCodesRaw = dailyMonthRecord ? dailyMonthRecord.productCodes : [];
+  const dailyMatrixSplit = sortCodesChannelFirst(dailyMatrixCodesRaw);
+  const dailyMatrixCodes = dailyMatrixSplit.sorted;
   // 真實Shopline訂單金額(不是試算表手動打的數字,是直接從Shopline後台訂單資料算出來的)——
   // shoplineMonthsData是refreshAllData裡全域載入的,不分品牌,一頁業績這裡直接讀同一份就有,
   // 不用額外開新的抓取路徑。用日期(YYYY-MM-DD)當key,方便跟矩陣總覽逐日的列對起來。
@@ -5467,9 +5483,9 @@ function MetaAdsLedger() {
                             key={code}
                             colSpan={4}
                             className={`mal-matrix-group-${i % 2 === 0 ? "a" : "b"}-header mal-matrix-group-${i % 2 === 0 ? "a" : "b"}-label mal-matrix-group-start`}
-                            style={{ textAlign: "center" }}
+                            style={{ textAlign: "center", ...(i === dailyMatrixSplit.channels.length && dailyMatrixSplit.products.length > 0 ? { borderLeft: "3px solid var(--blue-deep)" } : {}) }}
                           >
-                            {code}
+                            {isChannelCode(code) ? `🔗 ${code}` : code}
                           </th>
                         ))}
                       </tr>
@@ -5482,9 +5498,10 @@ function MetaAdsLedger() {
                         <th className="mal-ledger-group-backend">實收營收</th>
                         {dailyMatrixCodes.map((code, i) => {
                           const tone = `mal-matrix-group-${i % 2 === 0 ? "a" : "b"}`;
+                          const boundary = i === dailyMatrixSplit.channels.length && dailyMatrixSplit.products.length > 0;
                           return (
                             <React.Fragment key={code}>
-                              <th className={`${tone} mal-matrix-group-start`}>營收</th>
+                              <th className={`${tone} mal-matrix-group-start`} style={boundary ? { borderLeft: "3px solid var(--blue-deep)" } : undefined}>營收</th>
                               <th className={tone}>廣告費</th>
                               <th className={tone}>廣告費佔比</th>
                               <th className={tone}>淨利潤</th>
@@ -5506,9 +5523,10 @@ function MetaAdsLedger() {
                           {dailyMatrixCodes.map((code, i) => {
                             const v = d.byCode[code];
                             const tone = `mal-matrix-group-${i % 2 === 0 ? "a" : "b"}`;
+                            const boundary = i === dailyMatrixSplit.channels.length && dailyMatrixSplit.products.length > 0;
                             return (
                               <React.Fragment key={code}>
-                                <td className={`${tone} mal-matrix-group-start`}>{v ? fmtMoney(v.revenue) : "—"}</td>
+                                <td className={`${tone} mal-matrix-group-start`} style={boundary ? { borderLeft: "3px solid var(--blue-deep)" } : undefined}>{v ? fmtMoney(v.revenue) : "—"}</td>
                                 <td className={tone}>{v ? fmtMoney(v.spend) : "—"}</td>
                                 <td className={tone}>{v ? adPct(v.spend, v.revenue, adRatioThresholds[activeBrandId]) : "—"}</td>
                                 <td className={tone}>{v ? netProfitCell(v.netProfit) : "—"}</td>
