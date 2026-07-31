@@ -900,7 +900,7 @@ function matchShoplineOrdersToAds(shoplineOrders, ads) {
   const byAdKey = {};
   const unmatched = { revenue: 0, orderCount: 0 };
   const validOrders = (shoplineOrders || []).filter(
-    (o) => o.paymentStatus === "paid" && o.status !== "cancelled"
+    (o) => !UNPAID_STATUSES.has(o.paymentStatus) && o.status !== "cancelled"
   );
   validOrders.forEach((o) => {
     const contentId = o.utm && (o.utm.utm_content || o.utm.utm_term);
@@ -974,10 +974,15 @@ function getLastWeekRange(utcOffsetHours, weeksAgo = 1) {
 }
 // 把一批 Shopline 訂單(record.orders)依下單日期分組,算出每天的訂單數、原價營收、折扣金額、實收營收。
 // 官網業績(H&J官網業績)的營收本來就是 Shopline 資料,不是 Google 試算表帳本,「每日報表」對這個品牌要看這份,不是空的帳本。
+// 2026-07-30再次修正:先後試過paymentStatus==='completed'(太窄,低估)、==='paid'(更窄,直接變成0),
+// 兩次都證明對Shopline實際欄位值的假設是錯的,不能再繼續猜「成功狀態」到底精確寫什麼字串。
+// 改成反過來:只排除「明確不算錢」的狀態(未付款/等待中/已授權未請款/已退款),不在這份清單裡的
+// 一律算數——即使對Shopline確切用字的理解還有落差,也不會像之前那樣被錯誤的精確比對直接砍成0。
+const UNPAID_STATUSES = new Set(["unpaid", "pending", "authorized", "refunded", "voided", "failed"]);
 function groupShoplineOrdersByDay(orders) {
   const byDay = {};
   (orders || [])
-    .filter((o) => o.paymentStatus === "paid" && o.status !== "cancelled")
+    .filter((o) => !UNPAID_STATUSES.has(o.paymentStatus) && o.status !== "cancelled")
     .forEach((o) => {
       const day = (o.createdAt || "").slice(0, 10);
       if (!day) return;
@@ -992,7 +997,7 @@ function groupShoplineOrdersByDay(orders) {
 // 整段期間(一整個月或一整週)的真實Shopline訂單總計,不拆到逐日——用在每月/每週報表這種只要看
 // 總數的地方,跟上面逐日分組共用同一套篩選條件(已完成、未取消)。
 function sumShoplineOrders(orders) {
-  const valid = (orders || []).filter((o) => o.paymentStatus === "paid" && o.status !== "cancelled");
+  const valid = (orders || []).filter((o) => !UNPAID_STATUSES.has(o.paymentStatus) && o.status !== "cancelled");
   return {
     orderCount: valid.length,
     netRevenue: valid.reduce((sum, o) => sum + (o.amount || 0), 0),
