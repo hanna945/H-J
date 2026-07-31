@@ -881,7 +881,7 @@ function matchShoplineOrdersToAds(shoplineOrders, ads) {
   const byAdKey = {};
   const unmatched = { revenue: 0, orderCount: 0 };
   const validOrders = (shoplineOrders || []).filter(
-    (o) => o.paymentStatus === "completed" && o.status !== "cancelled"
+    (o) => o.paymentStatus === "paid" && o.status !== "cancelled"
   );
   validOrders.forEach((o) => {
     const contentId = o.utm && (o.utm.utm_content || o.utm.utm_term);
@@ -944,7 +944,7 @@ function getLastWeekRange(utcOffsetHours, weeksAgo = 1) {
 function groupShoplineOrdersByDay(orders) {
   const byDay = {};
   (orders || [])
-    .filter((o) => o.paymentStatus === "completed" && o.status !== "cancelled")
+    .filter((o) => o.paymentStatus === "paid" && o.status !== "cancelled")
     .forEach((o) => {
       const day = (o.createdAt || "").slice(0, 10);
       if (!day) return;
@@ -959,7 +959,7 @@ function groupShoplineOrdersByDay(orders) {
 // 整段期間(一整個月或一整週)的真實Shopline訂單總計,不拆到逐日——用在每月/每週報表這種只要看
 // 總數的地方,跟上面逐日分組共用同一套篩選條件(已完成、未取消)。
 function sumShoplineOrders(orders) {
-  const valid = (orders || []).filter((o) => o.paymentStatus === "completed" && o.status !== "cancelled");
+  const valid = (orders || []).filter((o) => o.paymentStatus === "paid" && o.status !== "cancelled");
   return {
     orderCount: valid.length,
     netRevenue: valid.reduce((sum, o) => sum + (o.amount || 0), 0),
