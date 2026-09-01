@@ -2825,7 +2825,9 @@ function MetaAdsLedger() {
     setMetaUpdateNotice(null);
     try {
       const d = new Date();
-      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      // 改成重新抓「目前正在看的月份」(focusMonth),不是永遠只抓當月——切到過去月份(例如八月)按這顆
+      // 按鈕,就能把那個月的廣告連同縮圖網址跟 Meta 重抓一次(舊縮圖連結過期後,用這個把縮圖補回來)。
+      const monthKey = focusMonth || `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const since = `${monthKey}-01`;
       const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
       const until = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
@@ -4685,7 +4687,7 @@ function MetaAdsLedger() {
           <h3 style={{ fontFamily: "'Noto Serif TC', serif", margin: "12px 0 0" }}>帳本還是空的</h3>
           <p>按下方按鈕,系統會自動抓取廣告費、成果/購買次數、轉換價值等資料,並整理成逐廣告明細。</p>
           <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "month"} onClick={updateThisMonth}>
-            {metaUpdateLoading === "month" ? "更新中…" : "🔄 更新本月資料"}
+            {metaUpdateLoading === "month" ? "更新中…" : `🔄 更新${focusMonth ? monthLabel(focusMonth) : "本月"}資料`}
           </button>
         </div>
       ) : (
@@ -5159,7 +5161,7 @@ function MetaAdsLedger() {
             <h3 style={{ fontFamily: "'Noto Serif TC', serif", margin: "12px 0 0" }}>還沒有任何月報表資料</h3>
             <p>先按右上角「更新本月資料」,才能進行業配廣告的長線分析。</p>
             <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "month"} onClick={updateThisMonth}>
-              {metaUpdateLoading === "month" ? "更新中…" : "🔄 更新本月資料"}
+              {metaUpdateLoading === "month" ? "更新中…" : `🔄 更新${focusMonth ? monthLabel(focusMonth) : "本月"}資料`}
             </button>
           </div>
         ) : sponsorMonthsWithData.length === 0 ? (
