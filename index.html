@@ -1240,6 +1240,9 @@ function mergeChannelBreakdown(metaRows, metaTotalRevenue, metaTotalSpend, ledge
   if (ledgerAgg && ledgerAgg.byCode) {
     Object.entries(ledgerAgg.byCode).forEach(([code, v]) => {
       if (metaCodes.has(code)) return; // 這個代號 Meta 已經有資料,不重複算(帳面 vs Meta 落差另外由 LedgerVsMetaComparison 負責)
+      // 只有「真正的通路」(SHOPLINE、GOOGLE、蝦皮、MOMO…)才放進「其他通路」;產品代號(SR、TE、FS、REC、RS、KE、JK…)
+      // 就算 Meta 沒有對應資料,也不是通路,不能塞進「其他通路」——否則會被誤當成通路顯示、也會讓通路總額灌水。
+      if (!isChannelCode(code)) return;
       // spend 門檻多一道「至少是營收1%」的保護,是因為帳本解析在少數欄位對不到文字時會退回固定位移量保底,
       // 保底偶爾會抓到旁邊的百分比顯示欄(數字很小但不是0),這裡避免那種雜訊被誤判成「有花費」。
       const hasRealSpend = v.spend > 0 && (!(v.revenue > 0) || v.spend >= v.revenue * 0.01);
