@@ -5216,10 +5216,19 @@ function MetaAdsLedger() {
           <div className="mal-threshold-row">
             <span className="mal-threshold-label">CPA 過高標準</span>
             <strong className={`mal-threshold-value${cpaThresholds[activeBrandId] != null ? " mal-threshold-value-set" : ""}`}>
-              {cpaThresholds[activeBrandId] != null ? `$${cpaThresholds[activeBrandId]}` : "尚未設定"}
+              {cpaThresholds[activeBrandId] != null ? `${cpaThresholds[activeBrandId]}` : "尚未設定"}
             </strong>
             <button className="mal-btn mal-threshold-btn" onClick={() => editCpaThreshold(activeBrandId)}>
               {cpaThresholds[activeBrandId] != null ? "修改" : "設定"}
+            </button>
+          </div>
+          <div className="mal-threshold-row">
+            <span className="mal-threshold-label">CPC 目標</span>
+            <strong className={`mal-threshold-value${cpcThresholds[activeBrandId] != null ? " mal-threshold-value-set" : ""}`}>
+              {cpcThresholds[activeBrandId] != null ? `${cpcThresholds[activeBrandId]}` : "尚未設定"}
+            </strong>
+            <button className="mal-btn mal-threshold-btn" onClick={() => editCpcThreshold(activeBrandId)}>
+              {cpcThresholds[activeBrandId] != null ? "修改" : "設定"}
             </button>
           </div>
         </div>
@@ -5260,7 +5269,7 @@ function MetaAdsLedger() {
             <div>
               <h2 style={{ fontFamily: "'Noto Serif TC', serif", fontWeight: 600, fontSize: 22, margin: 0 }}>📣 廣告怎麼調</h2>
               <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: "5px 0 0" }}>
-                同一則廣告在不同 Campaign / 策略下的表現差異，直接看預算該往哪裡移。
+                同一則廣告只跟相同投放目標比較：CPA 比 CPA、CPC 比 CPC、CPM 比 CPM，再看預算該往哪裡移。
               </p>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -5305,6 +5314,7 @@ function MetaAdsLedger() {
                       currentRecord={focusData}
                       roasTarget={roasTargets[activeBrandId]}
                       cpaTarget={cpaThresholds[activeBrandId]}
+                      cpcTarget={cpcThresholds[activeBrandId]}
                       compact={false}
                       actionFirst={true}
                     />
@@ -5447,6 +5457,7 @@ function MetaAdsLedger() {
               previousRecord={prevData}
               roasTarget={roasTargets[activeBrandId]}
               cpaTarget={cpaThresholds[activeBrandId]}
+              cpcTarget={cpcThresholds[activeBrandId]}
               monthlyBudget={monthlyBudgets[activeBrandId]}
               periodType="month"
               periodLabel={monthLabel(focusMonth)}
@@ -5713,6 +5724,7 @@ function MetaAdsLedger() {
                   previousRecord={prevWeekData}
                   roasTarget={roasTargets[activeBrandId]}
                   cpaTarget={cpaThresholds[activeBrandId]}
+                  cpcTarget={cpcThresholds[activeBrandId]}
                   periodType="week"
                   periodLabel={weekLabel(focusWeek)}
                 />
