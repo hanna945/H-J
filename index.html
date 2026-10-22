@@ -102,6 +102,7 @@
   .mal-brand-chip:hover { border-color: var(--blue); color: var(--ink); }
   .mal-brand-chip-active { border-color: var(--blue-deep); color: var(--paper-raised); background: var(--blue-deep); font-weight: 500; }
   .mal-brand-adjust-btn { margin-left: 14px; height: 34px; padding: 0 15px; font-size: 12.5px; }
+  .mal-brand-adjust-btn-active { box-shadow: inset 0 -2px 0 rgba(255,255,255,.35); }
   .mal-viewmode-switch { display: flex; gap: 24px; margin-bottom: 22px; background: transparent; padding: 0; border-radius: 0; width: 100%; border-bottom: 1px solid var(--rule); }
   .mal-viewmode-btn {
     font-family: 'Noto Sans TC', sans-serif; font-weight: 500; font-size: 13.5px; padding: 0 2px 11px;
@@ -2792,7 +2793,7 @@ function MetaAdsLedger() {
   const [adRatioThresholds, setAdRatioThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的「廣告費佔比過高」標準(百分比數字,例如 30 代表 30%)
   const [roasTargets, setRoasTargets] = useState({}); // { [brandId]: number } 每個品牌各自的「投放成效報告」ROAS 目標倍數,預設 3
   const [monthlyBudgets, setMonthlyBudgets] = useState({}); // { [brandId]: number } 每個品牌月廣告預算上限
-  const [showAdAdjustmentModal, setShowAdAdjustmentModal] = useState(false);
+  const [adjustmentPeriod, setAdjustmentPeriod] = useState("month"); // 廣告怎麼調頁面使用月報或週報資料
   const [productNames, setProductNames] = useState({}); // { [brandId]: { [code]: name } } 每個品牌、每個代號各自的中文名稱,顯示成「代號(名稱)」——
   // 沒辦法從行銷活動名稱自動抓出乾淨的產品名稱(命名不夠固定),所以讓使用者自己設定,類似 roasTargets 那樣。
   const [selectedBatchBrandIds, setSelectedBatchBrandIds] = useState([]);
@@ -5125,8 +5126,11 @@ function MetaAdsLedger() {
             </div>
           ))}
           <button
-            className="mal-btn mal-btn-primary mal-brand-adjust-btn"
-            onClick={() => setShowAdAdjustmentModal(true)}
+            className={`mal-btn mal-btn-primary mal-brand-adjust-btn ${viewMode === "adjust" ? "mal-brand-adjust-btn-active" : ""}`}
+            onClick={() => {
+              setAdjustmentPeriod(viewMode === "week" ? "week" : "month");
+              setViewMode("adjust");
+            }}
             title="比較同一素材在不同 Campaign / 策略下的表現"
           >
             📣 廣告怎麼調
@@ -5176,6 +5180,105 @@ function MetaAdsLedger() {
           </button>
         )}
       </div>
+
+      {viewMode === "adjust" && (
+        <div style={{ marginTop: 4 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+            <div>
+              <h2 style={{ fontFamily: "'Noto Serif TC', serif", fontWeight: 600, fontSize: 22, margin: 0 }}>📣 廣告怎麼調</h2>
+              <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: "5px 0 0" }}>
+                同一則廣告在不同 Campaign / 策略下的表現差異，直接看預算該往哪裡移。
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className={`mal-btn ${adjustmentPeriod === "month" ? "mal-btn-primary" : ""}`}
+                onClick={() => setAdjustmentPeriod("month")}
+              >
+                📅 月報資料
+              </button>
+              <button
+                className={`mal-btn ${adjustmentPeriod === "week" ? "mal-btn-primary" : ""}`}
+                onClick={() => setAdjustmentPeriod("week")}
+              >
+                🗓 週報資料
+              </button>
+            </div>
+          </div>
+
+          {adjustmentPeriod === "month" ? (
+            sortedKeys.length === 0 ? (
+              <div className="mal-empty">
+                <div style={{ fontSize: 30 }}>📊</div>
+                <h3 style={{ fontFamily: "'Noto Serif TC', serif", margin: "12px 0 0" }}>還沒有月報資料</h3>
+                <p>先更新本月 Meta 廣告資料，就能開始比較同一素材在不同策略下的差異。</p>
+                <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "month"} onClick={updateThisMonth}>
+                  {metaUpdateLoading === "month" ? "更新中…" : "🔄 更新本月資料"}
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="mal-tabs">
+                  {sortedKeys.map((mk) => (
+                    <div key={mk} className={`mal-tab ${mk === focusMonth ? "mal-tab-active" : ""}`} onClick={() => setFocusMonth(mk)}>
+                      {monthLabel(mk)}
+                    </div>
+                  ))}
+                </div>
+                {focusData ? (
+                  <>
+                    <SyncedAtNote iso={focusData.syncedAt} source={focusData.source} />
+                    <CrossCampaignCreativePanel
+                      currentRecord={focusData}
+                      roasTarget={roasTargets[activeBrandId]}
+                      cpaTarget={cpaThresholds[activeBrandId]}
+                      compact={false}
+                      actionFirst={true}
+                    />
+                  </>
+                ) : (
+                  <div className="mal-empty"><p>請選擇一個月份。</p></div>
+                )}
+              </>
+            )
+          ) : (
+            sortedWeekKeys.length === 0 ? (
+              <div className="mal-empty">
+                <div style={{ fontSize: 30 }}>📊</div>
+                <h3 style={{ fontFamily: "'Noto Serif TC', serif", margin: "12px 0 0" }}>還沒有週報資料</h3>
+                <p>先抓取上週 Meta 廣告資料，就能開始做跨 Campaign 策略比較。</p>
+                <button className="mal-btn mal-btn-primary" disabled={weekLoading} onClick={fetchLastWeekData}>
+                  {weekLoading ? "抓取中…" : "🔄 抓取上週資料"}
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="mal-tabs">
+                  {sortedWeekKeys.map((wk) => (
+                    <div key={wk} className={`mal-tab ${wk === focusWeek ? "mal-tab-active" : ""}`} onClick={() => setFocusWeek(wk)}>
+                      {weekLabel(wk)}
+                    </div>
+                  ))}
+                </div>
+                {focusWeekData ? (
+                  <>
+                    <SyncedAtNote iso={focusWeekData.syncedAt} source={focusWeekData.source} />
+                    <CrossCampaignCreativePanel
+                      currentRecord={focusWeekData}
+                      roasTarget={roasTargets[activeBrandId]}
+                      cpaTarget={cpaThresholds[activeBrandId]}
+                      compact={false}
+                      actionFirst={true}
+                    />
+                  </>
+                ) : (
+                  <div className="mal-empty"><p>請選擇一個週次。</p></div>
+                )}
+              </>
+            )
+          )}
+        </div>
+      )}
 
       {viewMode === "month" && (loading ? <p style={{ color: "var(--ink-soft)" }}>載入帳本中…</p> : sortedKeys.length === 0 ? (
         <div className="mal-empty">
@@ -6376,18 +6479,6 @@ function MetaAdsLedger() {
           </div>
         </div>
       )}
-
-      <AdAdjustmentModal
-        open={showAdAdjustmentModal}
-        onClose={() => setShowAdAdjustmentModal(false)}
-        currentRecord={viewMode === "week" ? focusWeekData : focusData}
-        previousRecord={viewMode === "week" ? prevWeekData : prevData}
-        roasTarget={roasTargets[activeBrandId]}
-        cpaTarget={cpaThresholds[activeBrandId]}
-        monthlyBudget={viewMode === "month" ? monthlyBudgets[activeBrandId] : null}
-        periodType={viewMode === "week" ? "week" : "month"}
-        periodLabel={viewMode === "week" ? (focusWeek ? weekLabel(focusWeek) : "週報") : (focusMonth ? monthLabel(focusMonth) : "月報")}
-      />
 
       {confirmReset && (
         <div className="mal-modal-overlay">
