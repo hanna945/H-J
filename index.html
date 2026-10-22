@@ -2197,12 +2197,11 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, m
         </div>
       </div>
       {(() => {
-        // 狀態標籤:比對整體ROAS對目標的比例,自動判定「超標/優於目標/未達標」——跟參考範例同一組標籤概念。
-        // 「超出預算」這個標籤沒有對應的「預算上限」資料可以比對(現有資料只有實際花費,沒有預算目標本身),
-        // 所以自動判定不會選到它,需要的話你自己看情況口頭補充,不強行套一個猜的結論上去。
         const ratio = overallRoas !== null && roasTarget > 0 ? overallRoas / roasTarget : null;
-        const status = ratio === null ? null : ratio >= 1.5 ? "超標" : ratio >= 1 ? "優於目標" : "未達標";
-        const statusColor = { 超標: "var(--blue)", 優於目標: "var(--green)", 未達標: "var(--red)" };
+        const performanceStatus = ratio === null ? null : ratio >= 1.5 ? "超標" : ratio >= 1 ? "優於目標" : "未達標";
+        const budgetExceeded = monthlyBudget != null && monthlyBudget > 0 && totalSpend > monthlyBudget;
+        const activeStatuses = new Set([performanceStatus, ...(budgetExceeded ? ["超出預算"] : [])].filter(Boolean));
+        const statusColor = { 超出預算: "var(--amber)", 超標: "var(--blue)", 優於目標: "var(--green)", 未達標: "var(--red)" };
         const allTags = ["超出預算", "超標", "未達標", "優於目標"];
         return (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "6px 0 4px" }}>
@@ -2213,9 +2212,9 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, m
                   fontSize: 12.5,
                   padding: "2px 10px",
                   borderRadius: 999,
-                  fontWeight: tag === status ? 700 : 400,
-                  background: tag === status ? statusColor[tag] : "transparent",
-                  color: tag === status ? "#fff" : "var(--ink-soft)",
+                  fontWeight: activeStatuses.has(tag) ? 700 : 400,
+                  background: activeStatuses.has(tag) ? statusColor[tag] : "transparent",
+                  color: activeStatuses.has(tag) ? "#fff" : "var(--ink-soft)",
                 }}
               >
                 {tag}
@@ -2233,6 +2232,11 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, m
         <div className="mal-card">
           <div className="mal-card-label">總花費</div>
           <div className="mal-card-value">{fmtMoney(totalSpend, currencyCode)}</div>
+          {monthlyBudget != null && monthlyBudget > 0 && (
+            <div style={{ fontSize: 11.5, color: totalSpend > monthlyBudget ? "var(--red)" : "var(--ink-soft)", marginTop: 2 }}>
+              月預算 {fmtMoney(monthlyBudget, currencyCode)} · 已用 {((totalSpend / monthlyBudget) * 100).toFixed(1)}%
+            </div>
+          )}
         </div>
         <div className="mal-card">
           <div className="mal-card-label">總業績</div>
