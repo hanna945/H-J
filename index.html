@@ -101,6 +101,7 @@
   }
   .mal-brand-chip:hover { border-color: var(--blue); color: var(--ink); }
   .mal-brand-chip-active { border-color: var(--blue-deep); color: var(--paper-raised); background: var(--blue-deep); font-weight: 500; }
+  .mal-brand-adjust-btn { margin-left: 14px; height: 34px; padding: 0 15px; font-size: 12.5px; }
   .mal-viewmode-switch { display: flex; gap: 24px; margin-bottom: 22px; background: transparent; padding: 0; border-radius: 0; width: 100%; border-bottom: 1px solid var(--rule); }
   .mal-viewmode-btn {
     font-family: 'Noto Sans TC', sans-serif; font-weight: 500; font-size: 13.5px; padding: 0 2px 11px;
@@ -395,6 +396,7 @@
     .mal-brand-switch { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-items: stretch; }
     .mal-brand-switch-label { grid-column: 1 / -1; margin-bottom: 2px; }
     .mal-brand-chip { white-space: normal; line-height: 1.35; text-align: center; padding: 6px 10px; min-height: 46px; display: flex; align-items: center; justify-content: center; }
+    .mal-brand-adjust-btn { margin-left: 0; min-height: 46px; height: auto; width: 100%; }
     .mal-section-title { font-size: 16px; padding-left: 34px; margin: 26px 0 20px; }
     .mal-section-title::before { font-size: 32px; top: -14px; }
     /* 純裝飾用的emoji手機版隱藏,不影響按鈕點擊事件跟文字 */
@@ -5079,9 +5081,6 @@ function MetaAdsLedger() {
         </div>
         <div className="mal-header-actions">
           <div className="mal-header-actions-full">
-            <button className="mal-btn mal-btn-primary" onClick={() => setShowAdAdjustmentModal(true)} disabled={viewMode !== "month" && viewMode !== "week"}>
-              📣 廣告怎麼調
-            </button>
             <button
               className="mal-btn"
               style={{ background: "linear-gradient(135deg, #3C3733, #6E8577)", color: "#fff", borderColor: "#3C3733", fontWeight: 600 }}
@@ -5125,6 +5124,13 @@ function MetaAdsLedger() {
               {b.name}
             </div>
           ))}
+          <button
+            className="mal-btn mal-btn-primary mal-brand-adjust-btn"
+            onClick={() => setShowAdAdjustmentModal(true)}
+            title="比較同一素材在不同 Campaign / 策略下的表現"
+          >
+            📣 廣告怎麼調
+          </button>
         </div>
       )}
 
