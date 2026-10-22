@@ -487,7 +487,7 @@ const localOnlyStorage = {
 // 這三個 key 雖然不是「metaads-」開頭的資料表 key,但邏輯上也應該全隊共用(不是個人瀏覽器設定):
 // 品牌清單、CPA過高標準、廣告費佔比過高標準——你在自己電腦上設定的門檻,同事打開網頁應該要看到一樣的警示,
 // 而不是各自要重新設一次。跟 speedingscs 那邊保持同一份清單。
-const SHARED_EXACT_KEYS = new Set(["meta-api-brands", "meta-api-cpa-thresholds", "meta-api-adratio-thresholds", "meta-api-roas-targets", "meta-api-monthly-budgets", "meta-api-product-names"]);
+const SHARED_EXACT_KEYS = new Set(["meta-api-brands", "meta-api-cpa-thresholds", "meta-api-cpc-thresholds", "meta-api-adratio-thresholds", "meta-api-roas-targets", "meta-api-monthly-budgets", "meta-api-product-names"]);
 
 // ---------- 團隊共用資料庫二號選擇:Cloudflare Pages Functions + KV ----------
 // 如果這個網站不是在 Claude Artifact 裡打開(window.storage 不存在),就改試著打 /api/kv 這個後端
@@ -1083,6 +1083,15 @@ function pickPurchaseValue(list) {
   }
   return 0;
 }
+function pickActionTypes(list, types) {
+  if (!list || !list.length) return 0;
+  for (const type of types) {
+    const match = list.find((a) => a.action_type === type);
+    if (match) return parseFloat(match.value) || 0;
+  }
+  return 0;
+}
+
 
 // 組出直接跳轉到 Meta 廣告管理員、並選取這支(或這幾支合併的)廣告的連結。
 // 沒有帳號 ID 或沒有對應的廣告 ID 就不顯示連結。
@@ -1787,13 +1796,59 @@ function normalizeCreativeNameForCompare(name) {
 
 function creativeCompareKey(ad) {
   if (ad && ad.postId) return "story:" + ad.postId;
+  if (ad && ad.creativeId) return "creative:" + ad.creativeId;
   const rawName = ad && Array.isArray(ad.rawNames) && ad.rawNames.length ? ad.rawNames[0] : (ad && ad.name);
   return "name:" + normalizeCreativeNameForCompare(rawName || "");
 }
 
-function buildCrossCampaignCreativeComparisons(currentRecord, roasTarget = 3, cpaTarget = null) {
+function classifyCampaignStrategy(ad) {
+  const name = String(ad && ad.campaign || "").toUpperCase();
+  if (/(^|[^A-Z])CPA([^A-Z]|$)/.test(name)) return "cpa";
+  if (/(^|[^A-Z])CPC([^A-Z]|$)/.test(name)) return "cpc";
+  if (/(^|[^A-Z])CPM([^A-Z]|$)/.test(name)) return "cpm";
+  const meta = [
+    name,
+    String(ad && ad.objective || "").toUpperCase(),
+    String(ad && ad.optimizationGoal || "").toUpperCase(),
+  ].join(" | ");
+  if (/SALES|PURCHASE|CONVERSION|CONVERSIONS|ASC|A\+SC|ADVANTAGE\+ SHOPPING|MAXIMIZE_CONVERSIONS|VALUE|轉單|轉換/.test(meta)) return "cpa";
+  if (/TRAFFIC|LINK_CLICK|LINK_CLICKS|LANDING_PAGE_VIEW|導流|網頁流量|流量/.test(meta)) return "cpc";
+  if (/AWARENESS|REACH|IMPRESSIONS|BRAND_AWARENESS|RECALL|曝光|觸及|回想|品牌知名度/.test(meta)) return "cpm";
+  return "other";
+}
+
+function strategyTypeLabel(type) {
+  if (type === "cpa") return "CPA 廣告";
+  if (type === "cpc") return "CPC 廣告";
+  if (type === "cpm") return "CPM / 品牌曝光";
+  return "其他";
+}
+
+function strategyMetricLabel(type) {
+  if (type === "cpa") return "CPA";
+  if (type === "cpc") return "CPC";
+  if (type === "cpm") return "CPM";
+  return "—";
+}
+
+function strategyPrimaryMetric(row, type) {
+  if (type === "cpa") return row.conversions > 0 ? row.cpa : Infinity;
+  if (type === "cpc") return row.cpc;
+  if (type === "cpm") return row.cpm;
+  return null;
+}
+
+function strategySampleOk(row, type, cpaTarget, cpcTarget) {
+  if (type === "cpa") return row.conversions >= 3 || (cpaTarget > 0 && row.spend >= cpaTarget * 2);
+  if (type === "cpc") return row.trafficClicks >= 20 || (cpcTarget > 0 && row.spend >= cpcTarget * 20);
+  if (type === "cpm") return row.impressions >= 1000 || row.reach >= 500;
+  return false;
+}
+
+function buildStrategyComparisonGroups(currentRecord, type, cpaTarget = null, cpcTarget = null) {
   const groups = new Map();
   (currentRecord && currentRecord.ads || []).forEach((ad) => {
+    if (classifyCampaignStrategy(ad) !== type) return;
     const key = creativeCompareKey(ad);
     if (!key || key === "name:") return;
     if (!groups.has(key)) {
@@ -1801,6 +1856,7 @@ function buildCrossCampaignCreativeComparisons(currentRecord, roasTarget = 3, cp
         key,
         label: (Array.isArray(ad.rawNames) && ad.rawNames.length ? ad.rawNames[0] : ad.name) || "未命名素材",
         postId: ad.postId || "",
+        creativeId: ad.creativeId || "",
         campaigns: new Map(),
         totalSpend: 0,
       });
@@ -1810,22 +1866,29 @@ function buildCrossCampaignCreativeComparisons(currentRecord, roasTarget = 3, cp
     if (!g.campaigns.has(campaignName)) {
       g.campaigns.set(campaignName, {
         campaign: campaignName,
+        objective: ad.objective || "",
+        optimizationGoal: ad.optimizationGoal || "",
         spend: 0,
         conversions: 0,
         revenue: 0,
         impressions: 0,
         clicks: 0,
+        trafficClicks: 0,
+        landingPageViews: 0,
         reach: 0,
         adSets: new Set(),
         adCount: 0,
       });
     }
     const x = g.campaigns.get(campaignName);
+    const trafficClicks = Number(ad.linkClicks || 0) > 0 ? Number(ad.linkClicks || 0) : Number(ad.clicks || 0);
     x.spend += Number(ad.spend || 0);
     x.conversions += Number(ad.conversions || 0);
     x.revenue += Number(ad.revenue || 0);
     x.impressions += Number(ad.impressions || 0);
-    x.clicks += Number(ad.linkClicks || ad.clicks || 0);
+    x.clicks += Number(ad.clicks || 0);
+    x.trafficClicks += trafficClicks;
+    x.landingPageViews += Number(ad.landingPageViews || 0);
     x.reach += Number(ad.reach || 0);
     if (ad.adSet) x.adSets.add(ad.adSet);
     x.adCount += Number(ad.adCount || 1);
@@ -1834,220 +1897,213 @@ function buildCrossCampaignCreativeComparisons(currentRecord, roasTarget = 3, cp
 
   return [...groups.values()]
     .map((g) => {
-      const campaigns = [...g.campaigns.values()]
-        .map((x) => ({
-          ...x,
-          adSets: [...x.adSets],
-          roas: x.spend > 0 ? x.revenue / x.spend : null,
-          cpa: x.conversions > 0 ? x.spend / x.conversions : null,
-          ctr: x.impressions > 0 ? (x.clicks / x.impressions) * 100 : null,
-          cpm: x.impressions > 0 ? (x.spend / x.impressions) * 1000 : null,
-          cvr: x.clicks > 0 ? (x.conversions / x.clicks) * 100 : null,
-          frequency: x.reach > 0 ? x.impressions / x.reach : null,
-        }))
-        .sort((a, b) => (b.roas ?? -1) - (a.roas ?? -1) || b.conversions - a.conversions || b.spend - a.spend);
+      const campaigns = [...g.campaigns.values()].map((x) => ({
+        ...x,
+        adSets: [...x.adSets],
+        cpa: x.conversions > 0 ? x.spend / x.conversions : null,
+        roas: x.spend > 0 ? x.revenue / x.spend : null,
+        cpc: x.trafficClicks > 0 ? x.spend / x.trafficClicks : null,
+        ctr: x.impressions > 0 ? (x.trafficClicks / x.impressions) * 100 : null,
+        cpm: x.impressions > 0 ? (x.spend / x.impressions) * 1000 : null,
+        cvr: x.trafficClicks > 0 ? (x.conversions / x.trafficClicks) * 100 : null,
+        costPerLpv: x.landingPageViews > 0 ? x.spend / x.landingPageViews : null,
+        frequency: x.reach > 0 ? x.impressions / x.reach : null,
+      }));
 
-      const target = roasTarget > 0 ? roasTarget : 3;
-      const eligible = campaigns.filter((x) =>
-        x.spend >= 500 ||
-        x.conversions >= 3
-      );
-      const pool = eligible.length >= 2 ? eligible : campaigns;
-      const ranked = [...pool].sort((a, b) => {
-        const ar = a.roas ?? -1;
-        const br = b.roas ?? -1;
-        if (br !== ar) return br - ar;
-        if (cpaTarget > 0 && a.cpa != null && b.cpa != null) return a.cpa - b.cpa;
-        return b.conversions - a.conversions;
-      });
-
-      const best = ranked[0] || null;
-      const second = ranked[1] || null;
-      let comparison = {
-        status: "MONITOR",
-        icon: "🟡",
-        best,
-        reason: "跨 Campaign 資料不足，先累積更多樣本。",
-        diagnosis: "",
-      };
-
-      if (best && second) {
-        const bestReliable =
-          best.conversions >= 5 ||
-          best.spend >= Math.max(1500, (cpaTarget || 0) * 2);
-        const secondReliable =
-          second.conversions >= 5 ||
-          second.spend >= Math.max(1500, (cpaTarget || 0) * 2);
-        const bestRoas = best.roas ?? 0;
-        const secondRoas = second.roas ?? 0;
-        const gap = secondRoas > 0 ? bestRoas / secondRoas : null;
-
-        let diagnosis = "";
-        if (best.ctr != null && second.ctr != null) {
-          const ctrGap = Math.abs(metricPctDelta(best.ctr, second.ctr) || 0);
-          const cvrGap = best.cvr != null && second.cvr != null ? Math.abs(metricPctDelta(best.cvr, second.cvr) || 0) : 0;
-          const cpmGap = best.cpm != null && second.cpm != null ? Math.abs(metricPctDelta(best.cpm, second.cpm) || 0) : 0;
-          if (ctrGap >= 25) diagnosis = "同素材 CTR 差異大，Campaign 的受眾／版位匹配度可能不同。";
-          else if (cvrGap >= 25) diagnosis = "CTR 接近但 CVR 差異較大，比較像受眾品質或轉換意圖差異。";
-          else if (cpmGap >= 25) diagnosis = "CTR / CVR 接近但 CPM 差距較大，主要可能是競價成本不同。";
-          else diagnosis = "點擊與轉換結構接近，差異主要反映整體投放效率。";
-        }
-
-        if (!bestReliable || !secondReliable) {
-          comparison = {
-            status: "MONITOR",
-            icon: "🟡",
-            best,
-            reason: "同素材已出現在多個 Campaign，但至少一邊樣本仍不足，先不要搬大量預算。",
-            diagnosis,
-          };
-        } else if (bestRoas >= target && gap != null && gap >= 1.25) {
-          comparison = {
-            status: "SHIFT",
-            icon: "🟢",
-            best,
-            reason: `同素材在「${best.campaign}」明顯較強，建議先把較弱 Campaign 約 10–20% 預算移向這個贏家。`,
-            diagnosis,
-          };
-        } else if (
-          cpaTarget > 0 &&
-          best.cpa != null &&
-          second.cpa != null &&
-          best.cpa <= cpaTarget &&
-          second.cpa > cpaTarget * 1.25
-        ) {
-          comparison = {
-            status: "SHIFT",
-            icon: "🟢",
-            best,
-            reason: `同素材在「${best.campaign}」CPA 達標，但其他 Campaign 成本明顯偏高，建議優先把預算移向 CPA 較低的 Campaign。`,
-            diagnosis,
-          };
-        } else if (gap != null && gap <= 1.15) {
-          comparison = {
-            status: "KEEP",
-            icon: "🟦",
-            best,
-            reason: "同素材在不同 Campaign 的 ROAS 差距小於約 15%，暫時沒有明顯贏家，維持目前分配。",
-            diagnosis,
-          };
-        } else {
-          comparison = {
-            status: "MONITOR",
-            icon: "🟡",
-            best,
-            reason: "已有差異，但還不到明確搬預算門檻，先觀察更多轉單或再看 2–3 天。",
-            diagnosis,
-          };
-        }
-      }
+      const eligible = campaigns.filter((row) => strategySampleOk(row, type, cpaTarget, cpcTarget));
+      const finite = eligible.filter((row) => Number.isFinite(strategyPrimaryMetric(row, type)));
+      const best = type !== "other" && eligible.length >= 2 && finite.length
+        ? [...finite].sort((a, b) =>
+            strategyPrimaryMetric(a, type) - strategyPrimaryMetric(b, type) ||
+            b.conversions - a.conversions ||
+            b.spend - a.spend
+          )[0]
+        : null;
 
       return {
         ...g,
         campaigns,
         campaignCount: campaigns.length,
-        comparison,
+        best,
+        eligibleCount: eligible.length,
+        reason: strategyConclusion({ best, campaigns }, type),
       };
     })
     .filter((g) => g.campaignCount >= 2)
     .sort((a, b) => b.totalSpend - a.totalSpend);
 }
 
-function strategyRowVerdict(group, row) {
-  const best = group.comparison && group.comparison.best;
-  if (!best) return { compare: "樣本不足", action: "觀察", tone: "var(--ink-soft)" };
-  const isBest = row.campaign === best.campaign;
-  const roasGap = best.roas > 0 && row.roas != null ? ((row.roas - best.roas) / best.roas) * 100 : null;
-  const cpaGap = best.cpa > 0 && row.cpa != null ? ((row.cpa - best.cpa) / best.cpa) * 100 : null;
-
-  if (isBest) {
-    return {
-      compare: "🏆 本素材目前最佳策略",
-      action: group.comparison.status === "SHIFT" ? "↑ 加 10–20%" : "維持",
-      tone: "var(--green)",
-    };
-  }
-
-  const parts = [];
-  if (roasGap != null) parts.push(`ROAS ${roasGap.toFixed(0)}%`);
-  if (cpaGap != null) parts.push(`CPA ${cpaGap >= 0 ? "+" : ""}${cpaGap.toFixed(0)}%`);
-  const compare = parts.length ? parts.join(" · ") : "與最佳策略比較資料不足";
-
-  if (group.comparison.status === "SHIFT") {
-    return { compare, action: "↓ 減 10–20%", tone: "var(--red)" };
-  }
-  if (group.comparison.status === "KEEP") {
-    return { compare, action: "維持", tone: "var(--blue)" };
-  }
-  return { compare, action: "觀察", tone: "var(--amber)" };
+function strategyConclusion(group, type) {
+  if (type === "other") return "這組 Campaign 無法明確辨識為 CPA / CPC / CPM，先確認 Campaign Objective、Optimization Goal 或命名後再比較。";
+  if (!group.best) return `目前同素材雖出現在多個 ${strategyMetricLabel(type)} Campaign，但可用樣本不足，暫不判 Winner。`;
+  if (type === "cpa") return `同素材在「${group.best.campaign}」CPA 最低，目前為最佳 CPA 策略。CPA 明顯偏高的 Campaign 建議依差距降低 10–20%，再觀察 2–3 天。`;
+  if (type === "cpc") return `同素材在「${group.best.campaign}」CPC 最低，目前導流成本最有效率；再搭配 CTR、LPV 與 Cost/LPV 判斷點擊品質。`;
+  return `同素材在「${group.best.campaign}」CPM 最低，目前曝光成本最有效率；再搭配 Reach、Frequency 與 CTR 判斷觸及品質。`;
 }
 
-function CrossCampaignCreativePanel({ currentRecord, roasTarget = 3, cpaTarget = null, compact = false, actionFirst = false }) {
-  const rows = buildCrossCampaignCreativeComparisons(currentRecord, roasTarget, cpaTarget);
-  if (!currentRecord) return null;
-  if (!rows.length) {
-    return (
-      <div className="mal-insight-box" style={{ marginBottom: 14 }}>
-        <div className="mal-insight-box-title">同素材 × 不同策略對照表</div>
-        <p style={{ margin: "8px 0 0", color: "var(--ink-soft)", fontSize: 13 }}>
-          目前沒有找到同一素材同時出現在 2 個以上 Campaign 的可比較資料。重新更新週／月資料後，系統會優先用 Meta 貼文 ID 配對，抓不到才退回廣告名稱。
-        </p>
-      </div>
-    );
+function strategyRowVerdict(group, row, type, cpaTarget, cpcTarget) {
+  const best = group.best;
+  const sampleOk = strategySampleOk(row, type, cpaTarget, cpcTarget);
+  const isBest = !!best && row.campaign === best.campaign;
+
+  if (type === "other") return { compare: "未分類，不參與 Winner", action: "確認目標", tone: "var(--amber)", isBest: false };
+  if (type === "cpa" && row.conversions === 0 && cpaTarget > 0 && row.spend >= cpaTarget * 2) {
+    return { compare: "已達 CPA 目標 ×2 仍無轉單", action: "🔴 降低 / 停止", tone: "var(--red)", isBest: false };
+  }
+  if (!sampleOk) return { compare: "樣本不足", action: "觀察", tone: "var(--amber)", isBest: false };
+  if (!best) return { compare: "可用樣本不足，暫不判 Winner", action: "觀察", tone: "var(--amber)", isBest: false };
+  if (isBest) return { compare: `🏆 本素材目前最佳 ${strategyMetricLabel(type)} 策略`, action: "↑ 加 10–20%", tone: "var(--green)", isBest: true };
+
+  const bestMetric = strategyPrimaryMetric(best, type);
+  const metric = strategyPrimaryMetric(row, type);
+  if (!Number.isFinite(metric) || !Number.isFinite(bestMetric) || bestMetric <= 0) {
+    return { compare: "無法與最佳值計算", action: "觀察", tone: "var(--amber)", isBest: false };
   }
 
-  const statusOrder = { SHIFT: 0, MONITOR: 1, KEEP: 2 };
-  const ordered = actionFirst
-    ? [...rows].sort((x, y) => (statusOrder[x.comparison.status] ?? 9) - (statusOrder[y.comparison.status] ?? 9) || y.totalSpend - x.totalSpend)
-    : rows;
-  const visible = compact ? ordered.slice(0, 8) : ordered;
+  const diff = ((metric - bestMetric) / bestMetric) * 100;
+  const parts = [`${strategyMetricLabel(type)} +${diff.toFixed(0)}%`];
+  if (type === "cpa" && best.roas > 0 && row.roas != null) {
+    parts.push(`ROAS ${(((row.roas - best.roas) / best.roas) * 100).toFixed(0)}%`);
+  } else if (type === "cpc" && best.ctr > 0 && row.ctr != null) {
+    parts.push(`CTR ${(((row.ctr - best.ctr) / best.ctr) * 100).toFixed(0)}%`);
+  } else if (type === "cpm" && best.frequency > 0 && row.frequency != null) {
+    parts.push(`Frequency ${(((row.frequency - best.frequency) / best.frequency) * 100).toFixed(0)}%`);
+  }
+
+  if (diff < 10) return { compare: parts.join(" · "), action: "維持", tone: "var(--blue)", isBest: false };
+  if (diff <= 25) return { compare: parts.join(" · "), action: "觀察", tone: "var(--amber)", isBest: false };
+  return { compare: parts.join(" · "), action: "↓ 減 10–20%", tone: "var(--red)", isBest: false };
+}
+
+function strategyDiagnosis(group, row, type) {
+  const best = group.best;
+  if (!best || row.campaign === best.campaign) return "";
+  if (type === "cpc") {
+    if (row.ctr != null && best.ctr != null && row.ctr < best.ctr * 0.8) return "CTR 較低，較像素材 / 受眾吸引力不足。";
+    if (row.ctr != null && best.ctr != null && row.ctr >= best.ctr * 0.95 && row.cpm != null && best.cpm != null && row.cpm > best.cpm * 1.2) return "CTR 接近但 CPC 較高，主要可能是 CPM / 競價成本較高。";
+    if (row.cpc != null && best.cpc != null && row.cpc <= best.cpc * 1.1 && row.landingPageViews > 0 && best.landingPageViews > 0 && (row.landingPageViews / Math.max(row.trafficClicks, 1)) < (best.landingPageViews / Math.max(best.trafficClicks, 1)) * 0.75) return "CPC 不差但 LPV 比率偏低，點擊品質可能較弱。";
+  }
+  if (type === "cpa" && row.cpa != null && best.cpa != null && row.cpa > best.cpa * 1.25 && row.roas != null && best.roas != null && row.roas < best.roas * 0.8) return "CPA 較高且 ROAS 較低，這個策略的轉換效率明顯較弱。";
+  if (type === "cpm" && row.frequency != null && best.frequency != null && row.frequency > best.frequency * 1.3) return "Frequency 偏高，需留意重複觸及與受眾飽和。";
+  return "";
+}
+
+function CrossCampaignCreativePanel({ currentRecord, cpaTarget = null, cpcTarget = null, compact = false, actionFirst = false }) {
+  const counts = useMemo(() => {
+    const out = { cpa: 0, cpc: 0, cpm: 0, other: 0 };
+    Object.keys(out).forEach((type) => {
+      out[type] = buildStrategyComparisonGroups(currentRecord, type, cpaTarget, cpcTarget).length;
+    });
+    return out;
+  }, [currentRecord, cpaTarget, cpcTarget]);
+
+  const available = ["cpa", "cpc", "cpm", "other"].filter((type) => counts[type] > 0);
+  const [strategyType, setStrategyType] = useState("cpa");
+  useEffect(() => {
+    if (!available.includes(strategyType)) setStrategyType(available[0] || "cpa");
+  }, [currentRecord, cpaTarget, cpcTarget, counts.cpa, counts.cpc, counts.cpm, counts.other]);
+
+  if (!currentRecord) return null;
+  const groups = buildStrategyComparisonGroups(currentRecord, strategyType, cpaTarget, cpcTarget);
+  const visible = compact ? groups.slice(0, 5) : groups;
+
+  const note = strategyType === "cpa"
+    ? "Primary KPI：CPA，越低越好。Winner 以最低 CPA 判斷；ROAS、轉單量只作輔助。"
+    : strategyType === "cpc"
+    ? "Primary KPI：CPC，越低越好。Winner 以最低 CPC 判斷；CTR、LPV、Cost/LPV 作輔助。"
+    : strategyType === "cpm"
+    ? "Primary KPI：CPM，越低越好。Winner 以最低 CPM 判斷；Reach、Frequency、CTR 作輔助。"
+    : "未分類 Campaign 不參與 Winner，請先確認 Objective / Optimization Goal 或命名。";
 
   return (
     <div style={{ margin: "18px 0 22px" }}>
       <h2 className="mal-section-title">同素材 × 不同策略對照表</h2>
       <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "-3px 0 12px" }}>
-        一則素材一張表。每列是一個 Campaign / 策略，最後兩欄直接告訴你「跟最佳差多少」以及「預算怎麼動」。
+        CPA / CPC / CPM 分開比較，不會再把不同目標的 Campaign 混在同一張表。
       </p>
-      {visible.map((g) => (
+
+      <div className="mal-tabs" style={{ marginBottom: 14 }}>
+        {[
+          ["cpa", "CPA 廣告"],
+          ["cpc", "CPC 廣告"],
+          ["cpm", "CPM / 品牌曝光"],
+          ["other", "其他"],
+        ].map(([type, label]) => (
+          <div key={type} className={`mal-tab ${strategyType === type ? "mal-tab-active" : ""}`} onClick={() => setStrategyType(type)}>
+            {label} <span style={{ color: "var(--ink-soft)", fontSize: 11 }}>({counts[type]})</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mal-insight-box" style={{ marginBottom: 14 }}>
+        <div className="mal-insight-box-title">{strategyTypeLabel(strategyType)}</div>
+        <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "5px 0 0" }}>{note}</p>
+      </div>
+
+      {!visible.length ? (
+        <div className="mal-insight-box" style={{ marginBottom: 14 }}>
+          <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: 13 }}>
+            目前沒有找到同一素材同時出現在 2 個以上 {strategyTypeLabel(strategyType)} Campaign 的可比較資料。
+          </p>
+        </div>
+      ) : visible.map((g) => (
         <div className="mal-insight-box" style={{ marginBottom: 14, padding: 0, overflow: "hidden" }} key={g.key}>
           <div style={{ padding: "13px 14px", borderBottom: "1px solid var(--rule-soft)", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
             <div>
               <div className="mal-insight-box-title">{g.label}</div>
               <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 3 }}>
-                {g.campaignCount} 種策略{g.postId ? ` · Meta Post ${g.postId}` : ""}
+                {g.campaignCount} 種 {strategyMetricLabel(strategyType)} 策略
+                {g.postId ? ` · Meta Post ${g.postId}` : g.creativeId ? ` · Creative ${g.creativeId}` : ""}
               </div>
             </div>
-            <div style={{ textAlign: "right" }}>
-              <strong>{g.comparison.icon} {g.comparison.status}</strong>
-              <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 3 }}>
-                {g.comparison.status === "SHIFT" ? "有明顯贏家，可移動預算" : g.comparison.status === "KEEP" ? "差距小，先維持" : "樣本或差距尚未足夠"}
-              </div>
-            </div>
+            <strong>{g.best ? "🏆 已判 Winner" : "🟡 先觀察"}</strong>
           </div>
 
           <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
             <table className="mal-table">
               <thead>
-                <tr>
-                  <th>策略 / Campaign</th><th>Ad Set</th><th>花費</th><th>轉單</th><th>CPA</th><th>ROAS</th><th>CTR</th><th>CPM</th><th>CVR</th><th>跟最佳差多少</th><th>建議</th>
-                </tr>
+                {strategyType === "cpa" ? (
+                  <tr><th>策略 / Campaign</th><th>Ad Set</th><th>花費</th><th>轉單</th><th>CPA</th><th>ROAS</th><th>CTR</th><th>CPM</th><th>CVR</th><th>跟最佳差多少</th><th>建議</th></tr>
+                ) : strategyType === "cpc" ? (
+                  <tr><th>策略 / Campaign</th><th>Ad Set</th><th>花費</th><th>點擊</th><th>CPC</th><th>CTR</th><th>CPM</th><th>LPV</th><th>Cost/LPV</th><th>跟最佳差多少</th><th>建議</th></tr>
+                ) : strategyType === "cpm" ? (
+                  <tr><th>策略 / Campaign</th><th>Ad Set</th><th>花費</th><th>曝光</th><th>觸及</th><th>CPM</th><th>Frequency</th><th>CTR</th><th>跟最佳差多少</th><th>建議</th></tr>
+                ) : (
+                  <tr><th>策略 / Campaign</th><th>Ad Set</th><th>花費</th><th>Objective</th><th>Optimization Goal</th><th>狀態</th><th>建議</th></tr>
+                )}
               </thead>
               <tbody>
-                {g.campaigns.map((x) => {
-                  const verdict = strategyRowVerdict(g, x);
-                  const isBest = g.comparison.best && x.campaign === g.comparison.best.campaign;
+                {g.campaigns.map((row) => {
+                  const verdict = strategyRowVerdict(g, row, strategyType, cpaTarget, cpcTarget);
+                  const diag = strategyDiagnosis(g, row, strategyType);
                   return (
-                    <tr key={x.campaign} style={isBest ? { background: "rgba(71,116,92,.08)" } : undefined}>
-                      <td style={{ minWidth: 180, fontWeight: isBest ? 700 : 500 }}>{isBest ? "🏆 " : ""}{x.campaign}</td>
-                      <td style={{ minWidth: 160 }}>{x.adSets.join(" / ") || "—"}</td>
-                      <td>{fmtMoney(x.spend, currentRecord.currency)}</td>
-                      <td>{fmtInt(x.conversions)}</td>
-                      <td>{x.cpa != null ? fmtMoney(x.cpa, currentRecord.currency) : "—"}</td>
-                      <td style={{ fontWeight: 700 }}>{x.roas != null ? `${x.roas.toFixed(2)}x` : "—"}</td>
-                      <td>{x.ctr != null ? `${x.ctr.toFixed(2)}%` : "—"}</td>
-                      <td>{x.cpm != null ? fmtMoney(x.cpm, currentRecord.currency) : "—"}</td>
-                      <td>{x.cvr != null ? `${x.cvr.toFixed(2)}%` : "—"}</td>
-                      <td style={{ minWidth: 150, color: verdict.tone, fontWeight: isBest ? 700 : 500 }}>{verdict.compare}</td>
+                    <tr key={row.campaign} style={verdict.isBest ? { background: "rgba(71,116,92,.08)" } : undefined}>
+                      <td style={{ minWidth: 180, fontWeight: verdict.isBest ? 700 : 500 }}>
+                        {verdict.isBest ? "🏆 " : ""}{row.campaign}
+                        {diag && <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 3 }}>{diag}</div>}
+                      </td>
+                      <td style={{ minWidth: 160 }}>{row.adSets.join(" / ") || "—"}</td>
+                      {strategyType === "cpa" && <>
+                        <td>{fmtMoney(row.spend, currentRecord.currency)}</td><td>{fmtInt(row.conversions)}</td>
+                        <td>{row.cpa != null ? fmtMoney(row.cpa, currentRecord.currency) : "—"}</td>
+                        <td>{row.roas != null ? `${row.roas.toFixed(2)}x` : "—"}</td><td>{row.ctr != null ? `${row.ctr.toFixed(2)}%` : "—"}</td>
+                        <td>{row.cpm != null ? fmtMoney(row.cpm, currentRecord.currency) : "—"}</td><td>{row.cvr != null ? `${row.cvr.toFixed(2)}%` : "—"}</td>
+                      </>}
+                      {strategyType === "cpc" && <>
+                        <td>{fmtMoney(row.spend, currentRecord.currency)}</td><td>{fmtInt(row.trafficClicks)}</td>
+                        <td>{row.cpc != null ? fmtMoney(row.cpc, currentRecord.currency) : "—"}</td><td>{row.ctr != null ? `${row.ctr.toFixed(2)}%` : "—"}</td>
+                        <td>{row.cpm != null ? fmtMoney(row.cpm, currentRecord.currency) : "—"}</td><td>{fmtInt(row.landingPageViews)}</td>
+                        <td>{row.costPerLpv != null ? fmtMoney(row.costPerLpv, currentRecord.currency) : "—"}</td>
+                      </>}
+                      {strategyType === "cpm" && <>
+                        <td>{fmtMoney(row.spend, currentRecord.currency)}</td><td>{fmtInt(row.impressions)}</td><td>{fmtInt(row.reach)}</td>
+                        <td>{row.cpm != null ? fmtMoney(row.cpm, currentRecord.currency) : "—"}</td><td>{row.frequency != null ? row.frequency.toFixed(2) : "—"}</td>
+                        <td>{row.ctr != null ? `${row.ctr.toFixed(2)}%` : "—"}</td>
+                      </>}
+                      {strategyType === "other" && <>
+                        <td>{fmtMoney(row.spend, currentRecord.currency)}</td><td>{row.objective || "—"}</td><td>{row.optimizationGoal || "—"}</td>
+                      </>}
+                      <td style={{ minWidth: 155, color: verdict.tone, fontWeight: verdict.isBest ? 700 : 500 }}>{verdict.compare}</td>
                       <td style={{ whiteSpace: "nowrap", fontWeight: 800, color: verdict.tone }}>{verdict.action}</td>
                     </tr>
                   );
@@ -2057,8 +2113,7 @@ function CrossCampaignCreativePanel({ currentRecord, roasTarget = 3, cpaTarget =
           </div>
 
           <div style={{ padding: "10px 14px", borderTop: "1px solid var(--rule-soft)", background: "rgba(0,0,0,.015)" }}>
-            <div style={{ fontSize: 12.5 }}><strong>結論：</strong>{g.comparison.reason}</div>
-            {g.comparison.diagnosis && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4 }}>差異判讀：{g.comparison.diagnosis}</div>}
+            <div style={{ fontSize: 12.5 }}><strong>結論：</strong>{g.reason}</div>
           </div>
         </div>
       ))}
@@ -2066,7 +2121,7 @@ function CrossCampaignCreativePanel({ currentRecord, roasTarget = 3, cpaTarget =
   );
 }
 
-function DecisionIntelligencePanel({currentRecord,previousRecord,roasTarget=3,cpaTarget=null,monthlyBudget=null,periodType="week",periodLabel=""}){
+function DecisionIntelligencePanel({currentRecord,previousRecord,roasTarget=3,cpaTarget=null,cpcTarget=null,monthlyBudget=null,periodType="week",periodLabel=""}){
   const result=buildDecisionIntelligence(currentRecord,previousRecord,roasTarget,cpaTarget,monthlyBudget,periodType);
   if(!result) return null;
   const {current,previous,deltas,anomalies,decisions,score}=result;
@@ -2089,32 +2144,10 @@ function DecisionIntelligencePanel({currentRecord,previousRecord,roasTarget=3,cp
       currentRecord={currentRecord}
       roasTarget={roasTarget}
       cpaTarget={cpaTarget}
+      cpcTarget={cpcTarget}
       compact={true}
     />
   </div>;
-}
-function AdAdjustmentModal({open,onClose,currentRecord,previousRecord,roasTarget,cpaTarget,monthlyBudget,periodType,periodLabel}){
-  if(!open) return null;
-  const rows=buildCrossCampaignCreativeComparisons(currentRecord,roasTarget,cpaTarget);
-  const counts={SHIFT:0,KEEP:0,MONITOR:0};
-  rows.forEach((x)=>{counts[x.comparison.status]=(counts[x.comparison.status]||0)+1;});
-  return <div className="mal-modal-overlay" onClick={onClose}><div className="mal-modal" style={{maxWidth:1180}} onClick={e=>e.stopPropagation()}>
-    <h3>📣 廣告怎麼調</h3>
-    <p className="mal-modal-sub">{periodLabel} · 同一則廣告在不同策略 / Campaign 下的差異</p>
-    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-      <span style={{fontSize:12,padding:"5px 9px",border:"1px solid var(--rule)",borderRadius:4}}>需要移預算：{counts.SHIFT||0}</span>
-      <span style={{fontSize:12,padding:"5px 9px",border:"1px solid var(--rule)",borderRadius:4}}>先觀察：{counts.MONITOR||0}</span>
-      <span style={{fontSize:12,padding:"5px 9px",border:"1px solid var(--rule)",borderRadius:4}}>維持：{counts.KEEP||0}</span>
-    </div>
-    <CrossCampaignCreativePanel
-      currentRecord={currentRecord}
-      roasTarget={roasTarget}
-      cpaTarget={cpaTarget}
-      compact={false}
-      actionFirst={true}
-    />
-    <div className="mal-modal-actions"><button className="mal-btn" onClick={onClose}>關閉</button></div>
-  </div></div>;
 }
 function computeAdSetStats(ads){
   const map={};
@@ -2790,6 +2823,7 @@ function MetaAdsLedger() {
   const [brands, setBrands] = useState([]);
   const [activeBrandId, setActiveBrandId] = useState("");
   const [cpaThresholds, setCpaThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的「CPA 過高」標準
+  const [cpcThresholds, setCpcThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的 CPC 目標
   const [adRatioThresholds, setAdRatioThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的「廣告費佔比過高」標準(百分比數字,例如 30 代表 30%)
   const [roasTargets, setRoasTargets] = useState({}); // { [brandId]: number } 每個品牌各自的「投放成效報告」ROAS 目標倍數,預設 3
   const [monthlyBudgets, setMonthlyBudgets] = useState({}); // { [brandId]: number } 每個品牌月廣告預算上限
@@ -2886,12 +2920,13 @@ function MetaAdsLedger() {
 
   useEffect(() => {
     async function loadInitialConfig() {
-      const [accountIdRes, brandsRes, rememberRes, autoSyncRes, cpaRes, adRatioRes, roasRes, monthlyBudgetRes, productNamesRes] = await Promise.all([
+      const [accountIdRes, brandsRes, rememberRes, autoSyncRes, cpaRes, cpcRes, adRatioRes, roasRes, monthlyBudgetRes, productNamesRes] = await Promise.all([
         storage.get("meta-api-account-id").catch(() => null),
         storage.get("meta-api-brands").catch(() => null),
         storage.get("meta-api-remember-token").catch(() => null),
         storage.get("meta-api-autosync").catch(() => null),
         storage.get("meta-api-cpa-thresholds").catch(() => null),
+        storage.get("meta-api-cpc-thresholds").catch(() => null),
         storage.get("meta-api-adratio-thresholds").catch(() => null),
         storage.get("meta-api-roas-targets").catch(() => null),
         storage.get("meta-api-monthly-budgets").catch(() => null),
@@ -2902,6 +2937,9 @@ function MetaAdsLedger() {
 
       if (cpaRes && cpaRes.value) {
         try { setCpaThresholds(JSON.parse(cpaRes.value)); } catch { /* ignore malformed data */ }
+      }
+      if (cpcRes && cpcRes.value) {
+        try { setCpcThresholds(JSON.parse(cpcRes.value)); } catch { /* ignore malformed data */ }
       }
       // adRatioThresholds 原本只有存(storage.set)、沒有讀(storage.get)——存進共用資料庫的設定,
       // 每次重新整理頁面都讀不回來,等於形同虛設。這裡補上讀取,跟 cpaThresholds 用同一套模式。
@@ -3512,6 +3550,30 @@ function MetaAdsLedger() {
     storage.set("meta-api-cpa-thresholds", JSON.stringify(updated)).catch(() => {});
   }
 
+  function editCpcThreshold(brandId) {
+    const brandName = (brands.find((b) => b.id === brandId) || {}).name || brandId;
+    const current = cpcThresholds[brandId];
+    const input = window.prompt(
+      `設定「${brandName}」的 CPC 目標——Traffic / CPC 類 Campaign 會以 CPC 當主要 Winner 指標。\n留空白可以清除這個品牌的 CPC 目標。`,
+      current != null ? String(current) : ""
+    );
+    if (input === null) return;
+    const trimmed = input.trim().replace(/,/g, "");
+    const updated = { ...cpcThresholds };
+    if (!trimmed) {
+      delete updated[brandId];
+    } else {
+      const num = parseFloat(trimmed);
+      if (!Number.isFinite(num) || num <= 0) {
+        setApiError("CPC 目標請輸入一個大於 0 的數字。");
+        return;
+      }
+      updated[brandId] = num;
+    }
+    setCpcThresholds(updated);
+    storage.set("meta-api-cpc-thresholds", JSON.stringify(updated)).catch(() => {});
+  }
+
   // 跟 editCpaThreshold 同一套模式:每個品牌各自的「廣告費佔比過高」標準(百分比),
   // 超過這個比例,每日報表(選一天/矩陣總覽)裡的廣告費佔比欄位會標紅提醒。
   function editAdRatioThreshold(brandId) {
@@ -3790,12 +3852,15 @@ function MetaAdsLedger() {
     let adSetIdMap = {};
     let startDateMap = {};
     let postIdMap = {};
+    let creativeIdMap = {};
+    let objectiveMap = {};
+    let optimizationGoalMap = {};
     const ID_CHUNK_SIZE = 50;
     for (let i = 0; i < periodAdIds.length; i += ID_CHUNK_SIZE) {
       const chunk = periodAdIds.slice(i, i + ID_CHUNK_SIZE);
       const filtering = encodeURIComponent(JSON.stringify([{ field: "id", operator: "IN", value: chunk }]));
       let adsUrl =
-        `https://graph.facebook.com/v19.0/act_${accountId}/ads?fields=id,name,url_tags,effective_status,created_time,campaign{name},adset{id,name,start_time},creative{thumbnail_url,image_url,url_tags,effective_object_story_id}` +
+        `https://graph.facebook.com/v19.0/act_${accountId}/ads?fields=id,name,url_tags,effective_status,created_time,campaign{id,name,objective},adset{id,name,start_time,optimization_goal},creative{id,thumbnail_url,image_url,url_tags,effective_object_story_id}` +
         `&filtering=${filtering}&limit=500&access_token=${encToken}`;
       let page2 = 0;
       while (adsUrl && page2 < 5) {
@@ -3806,6 +3871,10 @@ function MetaAdsLedger() {
           // effective_object_story_id = 「粉專ID_貼文ID」,用來組出貼文本身的前台連結。
           const storyId = ad.creative && ad.creative.effective_object_story_id;
           if (storyId) postIdMap[ad.id] = storyId;
+          const creativeId = ad.creative && ad.creative.id;
+          if (creativeId) creativeIdMap[ad.id] = creativeId;
+          if (ad.campaign && ad.campaign.objective) objectiveMap[ad.id] = ad.campaign.objective;
+          if (ad.adset && ad.adset.optimization_goal) optimizationGoalMap[ad.id] = ad.adset.optimization_goal;
           // 有些廣告(例如動態素材/型錄類廣告)的追蹤參數是設在「創意」層級,不是廣告本身,
           // 所以廣告本身的 url_tags 抓不到值時,再退回去看創意底下的 url_tags。
           const tags = ad.url_tags || (ad.creative && ad.creative.url_tags) || "";
@@ -3858,6 +3927,7 @@ function MetaAdsLedger() {
       const clicks = parseFloat(row.clicks) || 0;
       const linkClicks = parseFloat(row.inline_link_clicks) || 0;
       const reach = parseFloat(row.reach) || 0;
+      const landingPageViews = pickActionTypes(row.actions, ["landing_page_view", "omni_landing_page_view"]);
 
       const adName = row.ad_name || "(未命名廣告)";
       const utm = utmMap[row.ad_id] || "";
@@ -3867,13 +3937,16 @@ function MetaAdsLedger() {
       const adSetName = adSetMap[row.ad_id] || "(未分類廣告組合)";
       const groupKey = (utm ? "utm:" + utm : "ad:" + row.ad_id) + "::campaign:" + campaignName + "::adset:" + adSetName + "::" + (isActive ? "on" : "off");
       if (!grouped[groupKey]) {
-        grouped[groupKey] = { utm, names: new Set(), image: "", postId: "", spend: 0, conversions: 0, revenue: 0, impressions: 0, clicks: 0, linkClicks: 0, reach: 0, active: isActive, campaigns: new Set(), adSets: new Set(), adSetIds: new Set(), adIds: new Set(), startDate: null };
+        grouped[groupKey] = { utm, names: new Set(), image: "", postId: "", creativeId: "", objective: "", optimizationGoal: "", spend: 0, conversions: 0, revenue: 0, impressions: 0, clicks: 0, linkClicks: 0, landingPageViews: 0, reach: 0, active: isActive, campaigns: new Set(), adSets: new Set(), adSetIds: new Set(), adIds: new Set(), startDate: null };
       }
       const g = grouped[groupKey];
       g.names.add(adName);
-      g.spend += spend; g.conversions += conversions; g.revenue += revenue; g.impressions += impressions; g.clicks += clicks; g.linkClicks += linkClicks; g.reach += reach;
+      g.spend += spend; g.conversions += conversions; g.revenue += revenue; g.impressions += impressions; g.clicks += clicks; g.linkClicks += linkClicks; g.landingPageViews += landingPageViews; g.reach += reach;
       if (!g.image && thumbMap[row.ad_id]) g.image = thumbMap[row.ad_id];
       if (!g.postId && postIdMap[row.ad_id]) g.postId = postIdMap[row.ad_id];
+      if (!g.creativeId && creativeIdMap[row.ad_id]) g.creativeId = creativeIdMap[row.ad_id];
+      if (!g.objective && objectiveMap[row.ad_id]) g.objective = objectiveMap[row.ad_id];
+      if (!g.optimizationGoal && optimizationGoalMap[row.ad_id]) g.optimizationGoal = optimizationGoalMap[row.ad_id];
       if (campaignMap[row.ad_id]) g.campaigns.add(campaignMap[row.ad_id]);
       if (adSetMap[row.ad_id]) g.adSets.add(adSetMap[row.ad_id]);
       if (adSetIdMap[row.ad_id]) g.adSetIds.add(adSetIdMap[row.ad_id]);
@@ -3910,8 +3983,8 @@ function MetaAdsLedger() {
             ? adSetList[0]
             : `${adSetList[0]} 等 ${adSetList.length} 個廣告組合`;
         return {
-          name, utm: g.utm, image: g.image, postId: g.postId, spend: g.spend, conversions: g.conversions, revenue: g.revenue,
-          impressions: g.impressions, clicks: g.clicks, linkClicks: g.linkClicks, reach: g.reach,
+          name, utm: g.utm, image: g.image, postId: g.postId, creativeId: g.creativeId, objective: g.objective, optimizationGoal: g.optimizationGoal, spend: g.spend, conversions: g.conversions, revenue: g.revenue,
+          impressions: g.impressions, clicks: g.clicks, linkClicks: g.linkClicks, landingPageViews: g.landingPageViews, reach: g.reach,
           adCount, rawNames: nameList, active: g.active, campaign, adSet, adSetIds: [...g.adSetIds], adIds: [...g.adIds], startDate: g.startDate,
         };
       })
@@ -5143,10 +5216,19 @@ function MetaAdsLedger() {
           <div className="mal-threshold-row">
             <span className="mal-threshold-label">CPA 過高標準</span>
             <strong className={`mal-threshold-value${cpaThresholds[activeBrandId] != null ? " mal-threshold-value-set" : ""}`}>
-              {cpaThresholds[activeBrandId] != null ? `$${cpaThresholds[activeBrandId]}` : "尚未設定"}
+              {cpaThresholds[activeBrandId] != null ? `${cpaThresholds[activeBrandId]}` : "尚未設定"}
             </strong>
             <button className="mal-btn mal-threshold-btn" onClick={() => editCpaThreshold(activeBrandId)}>
               {cpaThresholds[activeBrandId] != null ? "修改" : "設定"}
+            </button>
+          </div>
+          <div className="mal-threshold-row">
+            <span className="mal-threshold-label">CPC 目標</span>
+            <strong className={`mal-threshold-value${cpcThresholds[activeBrandId] != null ? " mal-threshold-value-set" : ""}`}>
+              {cpcThresholds[activeBrandId] != null ? `${cpcThresholds[activeBrandId]}` : "尚未設定"}
+            </strong>
+            <button className="mal-btn mal-threshold-btn" onClick={() => editCpcThreshold(activeBrandId)}>
+              {cpcThresholds[activeBrandId] != null ? "修改" : "設定"}
             </button>
           </div>
         </div>
@@ -5187,7 +5269,7 @@ function MetaAdsLedger() {
             <div>
               <h2 style={{ fontFamily: "'Noto Serif TC', serif", fontWeight: 600, fontSize: 22, margin: 0 }}>📣 廣告怎麼調</h2>
               <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: "5px 0 0" }}>
-                同一則廣告在不同 Campaign / 策略下的表現差異，直接看預算該往哪裡移。
+                同一則廣告只跟相同投放目標比較：CPA 比 CPA、CPC 比 CPC、CPM 比 CPM，再看預算該往哪裡移。
               </p>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -5232,6 +5314,7 @@ function MetaAdsLedger() {
                       currentRecord={focusData}
                       roasTarget={roasTargets[activeBrandId]}
                       cpaTarget={cpaThresholds[activeBrandId]}
+                      cpcTarget={cpcThresholds[activeBrandId]}
                       compact={false}
                       actionFirst={true}
                     />
@@ -5374,6 +5457,7 @@ function MetaAdsLedger() {
               previousRecord={prevData}
               roasTarget={roasTargets[activeBrandId]}
               cpaTarget={cpaThresholds[activeBrandId]}
+              cpcTarget={cpcThresholds[activeBrandId]}
               monthlyBudget={monthlyBudgets[activeBrandId]}
               periodType="month"
               periodLabel={monthLabel(focusMonth)}
@@ -5640,6 +5724,7 @@ function MetaAdsLedger() {
                   previousRecord={prevWeekData}
                   roasTarget={roasTargets[activeBrandId]}
                   cpaTarget={cpaThresholds[activeBrandId]}
+                  cpcTarget={cpcThresholds[activeBrandId]}
                   periodType="week"
                   periodLabel={weekLabel(focusWeek)}
                 />
