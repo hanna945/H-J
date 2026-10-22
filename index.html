@@ -487,7 +487,7 @@ const localOnlyStorage = {
 // 這三個 key 雖然不是「metaads-」開頭的資料表 key,但邏輯上也應該全隊共用(不是個人瀏覽器設定):
 // 品牌清單、CPA過高標準、廣告費佔比過高標準——你在自己電腦上設定的門檻,同事打開網頁應該要看到一樣的警示,
 // 而不是各自要重新設一次。跟 speedingscs 那邊保持同一份清單。
-const SHARED_EXACT_KEYS = new Set(["meta-api-brands", "meta-api-cpa-thresholds", "meta-api-adratio-thresholds", "meta-api-roas-targets", "meta-api-monthly-budgets", "meta-api-product-names"]);
+const SHARED_EXACT_KEYS = new Set(["meta-api-brands", "meta-api-cpa-thresholds", "meta-api-cpc-thresholds", "meta-api-adratio-thresholds", "meta-api-roas-targets", "meta-api-monthly-budgets", "meta-api-product-names"]);
 
 // ---------- 團隊共用資料庫二號選擇:Cloudflare Pages Functions + KV ----------
 // 如果這個網站不是在 Claude Artifact 裡打開(window.storage 不存在),就改試著打 /api/kv 這個後端
@@ -1083,6 +1083,15 @@ function pickPurchaseValue(list) {
   }
   return 0;
 }
+function pickActionTypes(list, types) {
+  if (!list || !list.length) return 0;
+  for (const type of types) {
+    const match = list.find((a) => a.action_type === type);
+    if (match) return parseFloat(match.value) || 0;
+  }
+  return 0;
+}
+
 
 // 組出直接跳轉到 Meta 廣告管理員、並選取這支(或這幾支合併的)廣告的連結。
 // 沒有帳號 ID 或沒有對應的廣告 ID 就不顯示連結。
@@ -2790,6 +2799,7 @@ function MetaAdsLedger() {
   const [brands, setBrands] = useState([]);
   const [activeBrandId, setActiveBrandId] = useState("");
   const [cpaThresholds, setCpaThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的「CPA 過高」標準
+  const [cpcThresholds, setCpcThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的 CPC 目標
   const [adRatioThresholds, setAdRatioThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的「廣告費佔比過高」標準(百分比數字,例如 30 代表 30%)
   const [roasTargets, setRoasTargets] = useState({}); // { [brandId]: number } 每個品牌各自的「投放成效報告」ROAS 目標倍數,預設 3
   const [monthlyBudgets, setMonthlyBudgets] = useState({}); // { [brandId]: number } 每個品牌月廣告預算上限
@@ -2886,12 +2896,13 @@ function MetaAdsLedger() {
 
   useEffect(() => {
     async function loadInitialConfig() {
-      const [accountIdRes, brandsRes, rememberRes, autoSyncRes, cpaRes, adRatioRes, roasRes, monthlyBudgetRes, productNamesRes] = await Promise.all([
+      const [accountIdRes, brandsRes, rememberRes, autoSyncRes, cpaRes, cpcRes, adRatioRes, roasRes, monthlyBudgetRes, productNamesRes] = await Promise.all([
         storage.get("meta-api-account-id").catch(() => null),
         storage.get("meta-api-brands").catch(() => null),
         storage.get("meta-api-remember-token").catch(() => null),
         storage.get("meta-api-autosync").catch(() => null),
         storage.get("meta-api-cpa-thresholds").catch(() => null),
+        storage.get("meta-api-cpc-thresholds").catch(() => null),
         storage.get("meta-api-adratio-thresholds").catch(() => null),
         storage.get("meta-api-roas-targets").catch(() => null),
         storage.get("meta-api-monthly-budgets").catch(() => null),
@@ -2902,6 +2913,9 @@ function MetaAdsLedger() {
 
       if (cpaRes && cpaRes.value) {
         try { setCpaThresholds(JSON.parse(cpaRes.value)); } catch { /* ignore malformed data */ }
+      }
+      if (cpcRes && cpcRes.value) {
+        try { setCpcThresholds(JSON.parse(cpcRes.value)); } catch { /* ignore malformed data */ }
       }
       // adRatioThresholds 原本只有存(storage.set)、沒有讀(storage.get)——存進共用資料庫的設定,
       // 每次重新整理頁面都讀不回來,等於形同虛設。這裡補上讀取,跟 cpaThresholds 用同一套模式。
@@ -3512,6 +3526,30 @@ function MetaAdsLedger() {
     storage.set("meta-api-cpa-thresholds", JSON.stringify(updated)).catch(() => {});
   }
 
+  function editCpcThreshold(brandId) {
+    const brandName = (brands.find((b) => b.id === brandId) || {}).name || brandId;
+    const current = cpcThresholds[brandId];
+    const input = window.prompt(
+      `設定「${brandName}」的 CPC 目標——Traffic / CPC 類 Campaign 會以 CPC 當主要 Winner 指標。\n留空白可以清除這個品牌的 CPC 目標。`,
+      current != null ? String(current) : ""
+    );
+    if (input === null) return;
+    const trimmed = input.trim().replace(/,/g, "");
+    const updated = { ...cpcThresholds };
+    if (!trimmed) {
+      delete updated[brandId];
+    } else {
+      const num = parseFloat(trimmed);
+      if (!Number.isFinite(num) || num <= 0) {
+        setApiError("CPC 目標請輸入一個大於 0 的數字。");
+        return;
+      }
+      updated[brandId] = num;
+    }
+    setCpcThresholds(updated);
+    storage.set("meta-api-cpc-thresholds", JSON.stringify(updated)).catch(() => {});
+  }
+
   // 跟 editCpaThreshold 同一套模式:每個品牌各自的「廣告費佔比過高」標準(百分比),
   // 超過這個比例,每日報表(選一天/矩陣總覽)裡的廣告費佔比欄位會標紅提醒。
   function editAdRatioThreshold(brandId) {
@@ -3790,12 +3828,15 @@ function MetaAdsLedger() {
     let adSetIdMap = {};
     let startDateMap = {};
     let postIdMap = {};
+    let creativeIdMap = {};
+    let objectiveMap = {};
+    let optimizationGoalMap = {};
     const ID_CHUNK_SIZE = 50;
     for (let i = 0; i < periodAdIds.length; i += ID_CHUNK_SIZE) {
       const chunk = periodAdIds.slice(i, i + ID_CHUNK_SIZE);
       const filtering = encodeURIComponent(JSON.stringify([{ field: "id", operator: "IN", value: chunk }]));
       let adsUrl =
-        `https://graph.facebook.com/v19.0/act_${accountId}/ads?fields=id,name,url_tags,effective_status,created_time,campaign{name},adset{id,name,start_time},creative{thumbnail_url,image_url,url_tags,effective_object_story_id}` +
+        `https://graph.facebook.com/v19.0/act_${accountId}/ads?fields=id,name,url_tags,effective_status,created_time,campaign{id,name,objective},adset{id,name,start_time,optimization_goal},creative{id,thumbnail_url,image_url,url_tags,effective_object_story_id}` +
         `&filtering=${filtering}&limit=500&access_token=${encToken}`;
       let page2 = 0;
       while (adsUrl && page2 < 5) {
@@ -3806,6 +3847,10 @@ function MetaAdsLedger() {
           // effective_object_story_id = 「粉專ID_貼文ID」,用來組出貼文本身的前台連結。
           const storyId = ad.creative && ad.creative.effective_object_story_id;
           if (storyId) postIdMap[ad.id] = storyId;
+          const creativeId = ad.creative && ad.creative.id;
+          if (creativeId) creativeIdMap[ad.id] = creativeId;
+          if (ad.campaign && ad.campaign.objective) objectiveMap[ad.id] = ad.campaign.objective;
+          if (ad.adset && ad.adset.optimization_goal) optimizationGoalMap[ad.id] = ad.adset.optimization_goal;
           // 有些廣告(例如動態素材/型錄類廣告)的追蹤參數是設在「創意」層級,不是廣告本身,
           // 所以廣告本身的 url_tags 抓不到值時,再退回去看創意底下的 url_tags。
           const tags = ad.url_tags || (ad.creative && ad.creative.url_tags) || "";
@@ -3858,6 +3903,7 @@ function MetaAdsLedger() {
       const clicks = parseFloat(row.clicks) || 0;
       const linkClicks = parseFloat(row.inline_link_clicks) || 0;
       const reach = parseFloat(row.reach) || 0;
+      const landingPageViews = pickActionTypes(row.actions, ["landing_page_view", "omni_landing_page_view"]);
 
       const adName = row.ad_name || "(未命名廣告)";
       const utm = utmMap[row.ad_id] || "";
@@ -3867,13 +3913,16 @@ function MetaAdsLedger() {
       const adSetName = adSetMap[row.ad_id] || "(未分類廣告組合)";
       const groupKey = (utm ? "utm:" + utm : "ad:" + row.ad_id) + "::campaign:" + campaignName + "::adset:" + adSetName + "::" + (isActive ? "on" : "off");
       if (!grouped[groupKey]) {
-        grouped[groupKey] = { utm, names: new Set(), image: "", postId: "", spend: 0, conversions: 0, revenue: 0, impressions: 0, clicks: 0, linkClicks: 0, reach: 0, active: isActive, campaigns: new Set(), adSets: new Set(), adSetIds: new Set(), adIds: new Set(), startDate: null };
+        grouped[groupKey] = { utm, names: new Set(), image: "", postId: "", creativeId: "", objective: "", optimizationGoal: "", spend: 0, conversions: 0, revenue: 0, impressions: 0, clicks: 0, linkClicks: 0, landingPageViews: 0, reach: 0, active: isActive, campaigns: new Set(), adSets: new Set(), adSetIds: new Set(), adIds: new Set(), startDate: null };
       }
       const g = grouped[groupKey];
       g.names.add(adName);
-      g.spend += spend; g.conversions += conversions; g.revenue += revenue; g.impressions += impressions; g.clicks += clicks; g.linkClicks += linkClicks; g.reach += reach;
+      g.spend += spend; g.conversions += conversions; g.revenue += revenue; g.impressions += impressions; g.clicks += clicks; g.linkClicks += linkClicks; g.landingPageViews += landingPageViews; g.reach += reach;
       if (!g.image && thumbMap[row.ad_id]) g.image = thumbMap[row.ad_id];
       if (!g.postId && postIdMap[row.ad_id]) g.postId = postIdMap[row.ad_id];
+      if (!g.creativeId && creativeIdMap[row.ad_id]) g.creativeId = creativeIdMap[row.ad_id];
+      if (!g.objective && objectiveMap[row.ad_id]) g.objective = objectiveMap[row.ad_id];
+      if (!g.optimizationGoal && optimizationGoalMap[row.ad_id]) g.optimizationGoal = optimizationGoalMap[row.ad_id];
       if (campaignMap[row.ad_id]) g.campaigns.add(campaignMap[row.ad_id]);
       if (adSetMap[row.ad_id]) g.adSets.add(adSetMap[row.ad_id]);
       if (adSetIdMap[row.ad_id]) g.adSetIds.add(adSetIdMap[row.ad_id]);
@@ -3910,8 +3959,8 @@ function MetaAdsLedger() {
             ? adSetList[0]
             : `${adSetList[0]} 等 ${adSetList.length} 個廣告組合`;
         return {
-          name, utm: g.utm, image: g.image, postId: g.postId, spend: g.spend, conversions: g.conversions, revenue: g.revenue,
-          impressions: g.impressions, clicks: g.clicks, linkClicks: g.linkClicks, reach: g.reach,
+          name, utm: g.utm, image: g.image, postId: g.postId, creativeId: g.creativeId, objective: g.objective, optimizationGoal: g.optimizationGoal, spend: g.spend, conversions: g.conversions, revenue: g.revenue,
+          impressions: g.impressions, clicks: g.clicks, linkClicks: g.linkClicks, landingPageViews: g.landingPageViews, reach: g.reach,
           adCount, rawNames: nameList, active: g.active, campaign, adSet, adSetIds: [...g.adSetIds], adIds: [...g.adIds], startDate: g.startDate,
         };
       })
