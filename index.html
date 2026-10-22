@@ -1777,6 +1777,244 @@ function buildDecisionIntelligence(currentRecord,previousRecord,roasTarget,cpaTa
   const decisions=(currentRecord.ads||[]).filter(ad=>Number(ad.spend||0)>=500||ad.active).map(ad=>({ad,decision:adDecision(ad,prevMap.get(decisionAdKey(ad)),target,cpaTarget)})).sort((a,b)=>(order[a.decision.code]??9)-(order[b.decision.code]??9)||Number(b.ad.spend||0)-Number(a.ad.spend||0));
   return {current,previous,deltas,anomalies,decisions,score};
 }
+
+function normalizeCreativeNameForCompare(name) {
+  return String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function creativeCompareKey(ad) {
+  if (ad && ad.postId) return "story:" + ad.postId;
+  const rawName = ad && Array.isArray(ad.rawNames) && ad.rawNames.length ? ad.rawNames[0] : (ad && ad.name);
+  return "name:" + normalizeCreativeNameForCompare(rawName || "");
+}
+
+function buildCrossCampaignCreativeComparisons(currentRecord, roasTarget = 3, cpaTarget = null) {
+  const groups = new Map();
+  (currentRecord && currentRecord.ads || []).forEach((ad) => {
+    const key = creativeCompareKey(ad);
+    if (!key || key === "name:") return;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: (Array.isArray(ad.rawNames) && ad.rawNames.length ? ad.rawNames[0] : ad.name) || "未命名素材",
+        postId: ad.postId || "",
+        campaigns: new Map(),
+        totalSpend: 0,
+      });
+    }
+    const g = groups.get(key);
+    const campaignName = ad.campaign || "(未分類活動)";
+    if (!g.campaigns.has(campaignName)) {
+      g.campaigns.set(campaignName, {
+        campaign: campaignName,
+        spend: 0,
+        conversions: 0,
+        revenue: 0,
+        impressions: 0,
+        clicks: 0,
+        reach: 0,
+        adSets: new Set(),
+        adCount: 0,
+      });
+    }
+    const x = g.campaigns.get(campaignName);
+    x.spend += Number(ad.spend || 0);
+    x.conversions += Number(ad.conversions || 0);
+    x.revenue += Number(ad.revenue || 0);
+    x.impressions += Number(ad.impressions || 0);
+    x.clicks += Number(ad.linkClicks || ad.clicks || 0);
+    x.reach += Number(ad.reach || 0);
+    if (ad.adSet) x.adSets.add(ad.adSet);
+    x.adCount += Number(ad.adCount || 1);
+    g.totalSpend += Number(ad.spend || 0);
+  });
+
+  return [...groups.values()]
+    .map((g) => {
+      const campaigns = [...g.campaigns.values()]
+        .map((x) => ({
+          ...x,
+          adSets: [...x.adSets],
+          roas: x.spend > 0 ? x.revenue / x.spend : null,
+          cpa: x.conversions > 0 ? x.spend / x.conversions : null,
+          ctr: x.impressions > 0 ? (x.clicks / x.impressions) * 100 : null,
+          cpm: x.impressions > 0 ? (x.spend / x.impressions) * 1000 : null,
+          cvr: x.clicks > 0 ? (x.conversions / x.clicks) * 100 : null,
+          frequency: x.reach > 0 ? x.impressions / x.reach : null,
+        }))
+        .sort((a, b) => (b.roas ?? -1) - (a.roas ?? -1) || b.conversions - a.conversions || b.spend - a.spend);
+
+      const target = roasTarget > 0 ? roasTarget : 3;
+      const eligible = campaigns.filter((x) =>
+        x.spend >= 500 ||
+        x.conversions >= 3
+      );
+      const pool = eligible.length >= 2 ? eligible : campaigns;
+      const ranked = [...pool].sort((a, b) => {
+        const ar = a.roas ?? -1;
+        const br = b.roas ?? -1;
+        if (br !== ar) return br - ar;
+        if (cpaTarget > 0 && a.cpa != null && b.cpa != null) return a.cpa - b.cpa;
+        return b.conversions - a.conversions;
+      });
+
+      const best = ranked[0] || null;
+      const second = ranked[1] || null;
+      let comparison = {
+        status: "MONITOR",
+        icon: "🟡",
+        best,
+        reason: "跨 Campaign 資料不足，先累積更多樣本。",
+        diagnosis: "",
+      };
+
+      if (best && second) {
+        const bestReliable =
+          best.conversions >= 5 ||
+          best.spend >= Math.max(1500, (cpaTarget || 0) * 2);
+        const secondReliable =
+          second.conversions >= 5 ||
+          second.spend >= Math.max(1500, (cpaTarget || 0) * 2);
+        const bestRoas = best.roas ?? 0;
+        const secondRoas = second.roas ?? 0;
+        const gap = secondRoas > 0 ? bestRoas / secondRoas : null;
+
+        let diagnosis = "";
+        if (best.ctr != null && second.ctr != null) {
+          const ctrGap = Math.abs(metricPctDelta(best.ctr, second.ctr) || 0);
+          const cvrGap = best.cvr != null && second.cvr != null ? Math.abs(metricPctDelta(best.cvr, second.cvr) || 0) : 0;
+          const cpmGap = best.cpm != null && second.cpm != null ? Math.abs(metricPctDelta(best.cpm, second.cpm) || 0) : 0;
+          if (ctrGap >= 25) diagnosis = "同素材 CTR 差異大，Campaign 的受眾／版位匹配度可能不同。";
+          else if (cvrGap >= 25) diagnosis = "CTR 接近但 CVR 差異較大，比較像受眾品質或轉換意圖差異。";
+          else if (cpmGap >= 25) diagnosis = "CTR / CVR 接近但 CPM 差距較大，主要可能是競價成本不同。";
+          else diagnosis = "點擊與轉換結構接近，差異主要反映整體投放效率。";
+        }
+
+        if (!bestReliable || !secondReliable) {
+          comparison = {
+            status: "MONITOR",
+            icon: "🟡",
+            best,
+            reason: "同素材已出現在多個 Campaign，但至少一邊樣本仍不足，先不要搬大量預算。",
+            diagnosis,
+          };
+        } else if (bestRoas >= target && gap != null && gap >= 1.25) {
+          comparison = {
+            status: "SHIFT",
+            icon: "🟢",
+            best,
+            reason: `同素材在「${best.campaign}」明顯較強，建議先把較弱 Campaign 約 10–20% 預算移向這個贏家。`,
+            diagnosis,
+          };
+        } else if (
+          cpaTarget > 0 &&
+          best.cpa != null &&
+          second.cpa != null &&
+          best.cpa <= cpaTarget &&
+          second.cpa > cpaTarget * 1.25
+        ) {
+          comparison = {
+            status: "SHIFT",
+            icon: "🟢",
+            best,
+            reason: `同素材在「${best.campaign}」CPA 達標，但其他 Campaign 成本明顯偏高，建議優先把預算移向 CPA 較低的 Campaign。`,
+            diagnosis,
+          };
+        } else if (gap != null && gap <= 1.15) {
+          comparison = {
+            status: "KEEP",
+            icon: "🟦",
+            best,
+            reason: "同素材在不同 Campaign 的 ROAS 差距小於約 15%，暫時沒有明顯贏家，維持目前分配。",
+            diagnosis,
+          };
+        } else {
+          comparison = {
+            status: "MONITOR",
+            icon: "🟡",
+            best,
+            reason: "已有差異，但還不到明確搬預算門檻，先觀察更多轉單或再看 2–3 天。",
+            diagnosis,
+          };
+        }
+      }
+
+      return {
+        ...g,
+        campaigns,
+        campaignCount: campaigns.length,
+        comparison,
+      };
+    })
+    .filter((g) => g.campaignCount >= 2)
+    .sort((a, b) => b.totalSpend - a.totalSpend);
+}
+
+function CrossCampaignCreativePanel({ currentRecord, roasTarget = 3, cpaTarget = null, compact = false }) {
+  const rows = buildCrossCampaignCreativeComparisons(currentRecord, roasTarget, cpaTarget);
+  if (!currentRecord) return null;
+  if (!rows.length) {
+    return (
+      <div className="mal-insight-box" style={{ marginBottom: 14 }}>
+        <div className="mal-insight-box-title">同素材跨 Campaign 對比</div>
+        <p style={{ margin: "8px 0 0", color: "var(--ink-soft)", fontSize: 13 }}>
+          目前沒有找到同一素材同時出現在 2 個以上 Campaign 的可比較資料。重新更新週／月資料後，系統會優先用 Meta 貼文 ID 配對，抓不到才退回廣告名稱。
+        </p>
+      </div>
+    );
+  }
+
+  const visible = compact ? rows.slice(0, 8) : rows;
+  return (
+    <div style={{ margin: "18px 0 22px" }}>
+      <h2 className="mal-section-title">同素材跨 Campaign 對比</h2>
+      {visible.map((g) => (
+        <div className="mal-insight-box" style={{ marginBottom: 12 }} key={g.key}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div>
+              <div className="mal-insight-box-title">{g.label}</div>
+              <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 3 }}>
+                同素材出現在 {g.campaignCount} 個 Campaign{g.postId ? ` · Meta Post ${g.postId}` : ""}
+              </div>
+            </div>
+            <strong>{g.comparison.icon} {g.comparison.status}</strong>
+          </div>
+          <p style={{ fontSize: 13, margin: "10px 0 4px" }}>
+            <strong>建議：</strong>{g.comparison.reason}
+          </p>
+          {g.comparison.diagnosis && (
+            <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "4px 0 10px" }}>
+              診斷：{g.comparison.diagnosis}
+            </p>
+          )}
+          <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
+            <table className="mal-table">
+              <thead>
+                <tr><th>Campaign</th><th>Ad Set</th><th>花費</th><th>轉單</th><th>CPA</th><th>ROAS</th><th>CTR</th><th>CPM</th><th>CVR</th></tr>
+              </thead>
+              <tbody>
+                {g.campaigns.map((x) => (
+                  <tr key={x.campaign}>
+                    <td>{g.comparison.best && x.campaign === g.comparison.best.campaign ? "🏆 " : ""}{x.campaign}</td>
+                    <td>{x.adSets.join(" / ")}</td>
+                    <td>{fmtMoney(x.spend, currentRecord.currency)}</td>
+                    <td>{fmtInt(x.conversions)}</td>
+                    <td>{x.cpa != null ? fmtMoney(x.cpa, currentRecord.currency) : "—"}</td>
+                    <td>{x.roas != null ? `${x.roas.toFixed(2)}x` : "—"}</td>
+                    <td>{x.ctr != null ? `${x.ctr.toFixed(2)}%` : "—"}</td>
+                    <td>{x.cpm != null ? fmtMoney(x.cpm, currentRecord.currency) : "—"}</td>
+                    <td>{x.cvr != null ? `${x.cvr.toFixed(2)}%` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DecisionIntelligencePanel({currentRecord,previousRecord,roasTarget=3,cpaTarget=null,monthlyBudget=null,periodType="week",periodLabel=""}){
   const result=buildDecisionIntelligence(currentRecord,previousRecord,roasTarget,cpaTarget,monthlyBudget,periodType);
   if(!result) return null;
@@ -1796,24 +2034,46 @@ function DecisionIntelligencePanel({currentRecord,previousRecord,roasTarget=3,cp
       {metrics.map(([label,value,delta,invert])=><div className="mal-card" key={label}><div className="mal-card-label">{label}</div><div className="mal-card-value" style={{fontSize:22}}>{value}</div><div style={{fontSize:11.5}}>{previous?<><span style={{color:"var(--ink-soft)",marginRight:6}}>vs 前期</span><DeltaBadge value={delta} invert={invert}/></>:<span style={{color:"var(--ink-soft)"}}>前期無可比資料</span>}</div></div>)}
     </div>
     <div className="mal-insight-box" style={{marginBottom:14}}><div className="mal-insight-box-title">🚨 異常偵測</div>{anomalies.length?<ul>{anomalies.map((a,i)=><li key={i}><strong>{a.level==="red"?"🔴":"🟡"} {a.title}</strong> · {a.detail}</li>)}</ul>:<p style={{fontSize:13,color:"var(--ink-soft)"}}>目前沒有偵測到超出門檻的異常變化。</p>}</div>
-    <div className="mal-scroll-wrap" style={{overflowX:"auto"}}><table className="mal-table"><thead><tr><th>廣告</th><th>花費</th><th>轉單</th><th>ROAS</th><th>判斷</th><th>原因</th></tr></thead><tbody>{decisions.slice(0,12).map(({ad,decision},i)=>{const roas=ad.spend>0?ad.revenue/ad.spend:null;return <tr key={decisionAdKey(ad)+i}><td>{ad.name}</td><td>{fmtMoney(ad.spend,currentRecord.currency)}</td><td>{fmtInt(ad.conversions)}</td><td>{roas!=null?`${roas.toFixed(2)}x`:"—"}</td><td style={{fontWeight:700}}>{decision.icon} {decision.label}</td><td style={{minWidth:260}}>{decision.reason}</td></tr>;})}</tbody></table></div>
+    <CrossCampaignCreativePanel
+      currentRecord={currentRecord}
+      roasTarget={roasTarget}
+      cpaTarget={cpaTarget}
+      compact={true}
+    />
   </div>;
 }
 function AdAdjustmentModal({open,onClose,currentRecord,previousRecord,roasTarget,cpaTarget,monthlyBudget,periodType,periodLabel}){
   if(!open) return null;
-  const result=buildDecisionIntelligence(currentRecord,previousRecord,roasTarget,cpaTarget,monthlyBudget,periodType);
-  return <div className="mal-modal-overlay" onClick={onClose}><div className="mal-modal" style={{maxWidth:760}} onClick={e=>e.stopPropagation()}>
-    <h3>📣 廣告怎麼調</h3><p className="mal-modal-sub">{periodLabel} · 只顯示目前需要動作的廣告</p>
-    {!result?<p>目前沒有可分析的資料。</p>:<>
+  const rows=buildCrossCampaignCreativeComparisons(currentRecord,roasTarget,cpaTarget);
+  const counts={SHIFT:0,KEEP:0,MONITOR:0};
+  rows.forEach((x)=>{counts[x.comparison.status]=(counts[x.comparison.status]||0)+1;});
+  return <div className="mal-modal-overlay" onClick={onClose}><div className="mal-modal" style={{maxWidth:900}} onClick={e=>e.stopPropagation()}>
+    <h3>📣 廣告怎麼調</h3>
+    <p className="mal-modal-sub">{periodLabel} · 同一素材在不同 Campaign 的表現比較</p>
+    {!currentRecord?<p>目前沒有可分析的資料。</p>:<>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
-        {["SCALE","KEEP","MONITOR","REFRESH","REDUCE"].map(code=><span key={code} style={{fontSize:12,padding:"5px 9px",border:"1px solid var(--rule)",borderRadius:4}}>{code}: {result.decisions.filter(x=>x.decision.code===code).length}</span>)}
+        {["SHIFT","KEEP","MONITOR"].map(code=><span key={code} style={{fontSize:12,padding:"5px 9px",border:"1px solid var(--rule)",borderRadius:4}}>{code}: {counts[code]||0}</span>)}
       </div>
-      {result.decisions.filter(x=>x.decision.code!=="KEEP").slice(0,20).map(({ad,decision},i)=><div key={decisionAdKey(ad)+i} style={{padding:"12px 0",borderBottom:"1px solid var(--rule-soft)"}}>
-        <div style={{fontWeight:700}}>{decision.icon} {decision.label}｜{ad.name}</div>
-        <div style={{fontSize:12.5,color:"var(--ink-secondary)",marginTop:4}}>{decision.reason}</div>
-        <div style={{fontSize:11.5,color:"var(--ink-soft)",marginTop:3}}>花費 {fmtMoney(ad.spend,currentRecord.currency)} · 轉單 {fmtInt(ad.conversions)} · ROAS {ad.spend>0?(ad.revenue/ad.spend).toFixed(2):"—"}x</div>
-      </div>)}
-      {!result.decisions.some(x=>x.decision.code!=="KEEP")&&<p>目前沒有需要調整的廣告，維持現況即可。</p>}
+      {!rows.length ? (
+        <p>目前沒有找到同一素材跨 2 個以上 Campaign 的資料。請重新更新這一週／月資料，讓系統用 Meta 貼文 ID 重新配對。</p>
+      ) : rows.map((g)=>(
+        <div key={g.key} style={{padding:"14px 0",borderBottom:"1px solid var(--rule-soft)"}}>
+          <div style={{fontWeight:700}}>{g.comparison.icon} {g.comparison.status}｜{g.label}</div>
+          <div style={{fontSize:12.5,color:"var(--ink-secondary)",marginTop:4}}><strong>建議：</strong>{g.comparison.reason}</div>
+          {g.comparison.diagnosis && <div style={{fontSize:11.5,color:"var(--ink-soft)",marginTop:4}}>診斷：{g.comparison.diagnosis}</div>}
+          {g.campaigns.map((x)=>(
+            <div key={x.campaign} style={{fontSize:11.5,color:"var(--ink-soft)",marginTop:6}}>
+              {g.comparison.best && x.campaign===g.comparison.best.campaign ? "🏆 " : ""}{x.campaign}
+              {" → "}{x.adSets.join(" / ")}
+              {" · 花費 "}{fmtMoney(x.spend,currentRecord.currency)}
+              {" · 轉單 "}{fmtInt(x.conversions)}
+              {" · CPA "}{x.cpa!=null?fmtMoney(x.cpa,currentRecord.currency):"—"}
+              {" · ROAS "}{x.roas!=null?`${x.roas.toFixed(2)}x`:"—"}
+              {" · CTR "}{x.ctr!=null?`${x.ctr.toFixed(2)}%`:"—"}
+            </div>
+          ))}
+        </div>
+      ))}
     </>}
     <div className="mal-modal-actions"><button className="mal-btn" onClick={onClose}>關閉</button></div>
   </div></div>;
