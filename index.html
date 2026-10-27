@@ -3884,6 +3884,10 @@ function MetaAdsLedger() {
         insightsUrl = json.paging && json.paging.next ? json.paging.next : null;
         page++;
       }
+      // 原本最多只讀 20 頁，超過時會默默截斷。大型 H&J 帳號改走 async 重新抓完整結果。
+      if (insightsUrl) {
+        rows = await fetchInsightsRowsAsync(token, accountId, since, until, insightFields);
+      }
     } catch (e) {
       const msg = String((e && e.message) || "").toLowerCase();
       const likelyLargeReport =
