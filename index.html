@@ -3726,13 +3726,13 @@ function MetaAdsLedger() {
   // 它會確保「這一次要打的請求」跟「上一次真正打出去的請求」之間至少間隔 MIN_API_GAP_MS,
   // 不管上一次請求是來自周報表、月報表、批次、自動同步、或縮圖抓取,全部共用同一個計時器,
   // 所以就算使用者用兩個不同按鈕(先抓上週、再抓月報表)手動連續觸發,也一樣會被這裡擋下來排隊等待。
-  async function throttledFetch(url, context) {
+  async function throttledFetch(url, context, options) {
     const now = Date.now();
     const wait = lastApiCallRef.current + MIN_API_GAP_MS - now;
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastApiCallRef.current = Date.now();
     try {
-      return await fetch(url);
+      return await fetch(url, options);
     } catch (e) {
       throw new Error(`${context || "呼叫 Meta API"}時網路請求失敗:${e.message}`);
     }
@@ -3805,6 +3805,53 @@ function MetaAdsLedger() {
     return "。請確認權杖沒過期、廣告帳號 ID 正確,且已授權 ads_read 權限。";
   }
 
+  // 大型帳號備援：Meta 官方建議大型 Insights 結果改用 async report run。
+  // 平常仍先走原本同步 GET；只有同步查詢因資料量/處理時間失敗時才切 async，
+  // 小帳號與既有流程完全不受影響。
+  async function fetchInsightsRowsAsync(token, accountId, since, until, fields) {
+    const params = new URLSearchParams({
+      level: "ad",
+      use_account_attribution_setting: "true",
+      fields,
+      time_range: JSON.stringify({ since, until }),
+      access_token: token,
+    });
+    const createUrl = `https://graph.facebook.com/v19.0/act_${accountId}/insights?${params.toString()}`;
+    const createRes = await throttledFetch(createUrl, "建立大型成效報告", { method: "POST" });
+    const createJson = await parseApiResponse(createRes, "建立大型成效報告");
+    const reportRunId = createJson.report_run_id;
+    if (!reportRunId) throw new Error("Meta 沒有回傳大型成效報告 ID。");
+
+    let completed = false;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
+      const statusJson = await fetchGraphApi(
+        `https://graph.facebook.com/v19.0/${reportRunId}?fields=async_status,async_percent_completion&access_token=${encodeURIComponent(token)}`,
+        "等待大型成效報告"
+      );
+      if (statusJson.async_status === "Job Completed") {
+        completed = true;
+        break;
+      }
+      if (statusJson.async_status === "Job Failed") {
+        throw new Error("Meta 大型成效報告建立失敗。");
+      }
+    }
+    if (!completed) throw new Error("Meta 大型成效報告處理逾時，請稍後再試。");
+
+    let resultUrl =
+      `https://graph.facebook.com/v19.0/${reportRunId}/insights?limit=500&access_token=${encodeURIComponent(token)}`;
+    const rows = [];
+    let page = 0;
+    while (resultUrl && page < 100) {
+      const json = await fetchGraphApi(resultUrl, "下載大型成效報告");
+      rows.push(...(json.data || []));
+      resultUrl = json.paging && json.paging.next ? json.paging.next : null;
+      page++;
+    }
+    return rows;
+  }
+
   // relaxThreshold=true(目前只有「上週報表」會用到):篩選階段不會排除掉「目前還在投放中」的廣告,
   // 就算這支廣告這段期間花費還沒到 500,只要現在仍在投放,一樣會保留下來,方便看到剛起步/學習中的廣告。
   // 月報表(fetchOneBrandMonth)沒有帶這個參數,維持原本花費 ≥ 500 才留下的嚴格門檻。
@@ -3824,16 +3871,31 @@ function MetaAdsLedger() {
     // 而不是 API 預設的歸因窗口。如果沒有這個參數,API 預設的歸因窗口通常比後台顯示用的寬(例如把 7 天內的點擊、
     // 甚至瀏覽後很久才發生的購買都算進來),會導致轉單數比 Meta 後台顯示的「結果」多出好幾倍,CPA 被嚴重低估、
     // ROAS 被嚴重高估——這正是造成轉單數跟後台數字差非常多倍的根本原因,不是重複計算的問題。
+    const insightFields = "ad_id,ad_name,spend,impressions,clicks,inline_link_clicks,reach,actions,action_values";
     let insightsUrl =
       `https://graph.facebook.com/v19.0/act_${accountId}/insights?level=ad&use_account_attribution_setting=true` +
-      `&fields=ad_id,ad_name,spend,impressions,clicks,inline_link_clicks,reach,actions,action_values&time_range=${timeRange}&limit=500&access_token=${encToken}`;
+      `&fields=${insightFields}&time_range=${timeRange}&limit=500&access_token=${encToken}`;
     let rows = [];
     let page = 0;
-    while (insightsUrl && page < 20) {
-      const json = await fetchGraphApi(insightsUrl, "讀取成效資料");
-      rows = rows.concat(json.data || []);
-      insightsUrl = json.paging && json.paging.next ? json.paging.next : null;
-      page++;
+    try {
+      while (insightsUrl && page < 20) {
+        const json = await fetchGraphApi(insightsUrl, "讀取成效資料");
+        rows = rows.concat(json.data || []);
+        insightsUrl = json.paging && json.paging.next ? json.paging.next : null;
+        page++;
+      }
+      // 原本最多只讀 20 頁，超過時會默默截斷。大型 H&J 帳號改走 async 重新抓完整結果。
+      if (insightsUrl) {
+        rows = await fetchInsightsRowsAsync(token, accountId, since, until, insightFields);
+      }
+    } catch (e) {
+      const msg = String((e && e.message) || "").toLowerCase();
+      const likelyLargeReport =
+        e.code === 1 ||
+        e.code === 2 ||
+        /timeout|timed out|reduce the amount of data|request too large|unknown error/.test(msg);
+      if (!likelyLargeReport) throw e;
+      rows = await fetchInsightsRowsAsync(token, accountId, since, until, insightFields);
     }
 
     if (!rows.length) {
@@ -3841,9 +3903,17 @@ function MetaAdsLedger() {
     }
 
     // 2) thumbnails + UTM tags + 投放狀態 + 所屬行銷活動,matched by ad_id (more reliable than name)
-    // 這一步要放在篩選門檻「之前」,因為 relaxThreshold 模式需要用投放狀態來決定要不要放行低花費的廣告。
-    // 只查「這段期間真的有花費紀錄」的廣告 ID,不要掃整個帳號的歷史廣告,避免觸發 Meta 帳號層級的頻率限制。
-    const periodAdIds = [...new Set(rows.map((r) => r.ad_id).filter(Boolean))];
+    // H&J 帳號歷史廣告量很大。月報若把「所有有花費的 ad_id」都再查一次詳細資料，
+    // 會製造大量 /ads 請求，容易撞 Meta rate limit，也會讓整輪抓取拖非常久。
+    //
+    // 總計仍然使用完整 rows 計算，所以花費 / 轉單 / 營收 / ROAS 不會少算。
+    // 只有「廣告明細」需要額外抓 metadata：
+    //   - 月報：只查原本就會顯示的 spend >= MIN_FETCH_SPEND 廣告
+    //   - 週報(relaxThreshold)：維持查本週所有有成效列的廣告，才能保留低花費但仍投放中的新廣告
+    const detailTargetRows = relaxThreshold
+      ? rows
+      : rows.filter((r) => (parseFloat(r.spend) || 0) >= MIN_FETCH_SPEND);
+    const periodAdIds = [...new Set(detailTargetRows.map((r) => r.ad_id).filter(Boolean))];
     let thumbMap = {};
     let utmMap = {};
     let statusMap = {};
