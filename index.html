@@ -3841,9 +3841,17 @@ function MetaAdsLedger() {
     }
 
     // 2) thumbnails + UTM tags + 投放狀態 + 所屬行銷活動,matched by ad_id (more reliable than name)
-    // 這一步要放在篩選門檻「之前」,因為 relaxThreshold 模式需要用投放狀態來決定要不要放行低花費的廣告。
-    // 只查「這段期間真的有花費紀錄」的廣告 ID,不要掃整個帳號的歷史廣告,避免觸發 Meta 帳號層級的頻率限制。
-    const periodAdIds = [...new Set(rows.map((r) => r.ad_id).filter(Boolean))];
+    // H&J 帳號歷史廣告量很大。月報若把「所有有花費的 ad_id」都再查一次詳細資料，
+    // 會製造大量 /ads 請求，容易撞 Meta rate limit，也會讓整輪抓取拖非常久。
+    //
+    // 總計仍然使用完整 rows 計算，所以花費 / 轉單 / 營收 / ROAS 不會少算。
+    // 只有「廣告明細」需要額外抓 metadata：
+    //   - 月報：只查原本就會顯示的 spend >= MIN_FETCH_SPEND 廣告
+    //   - 週報(relaxThreshold)：維持查本週所有有成效列的廣告，才能保留低花費但仍投放中的新廣告
+    const detailTargetRows = relaxThreshold
+      ? rows
+      : rows.filter((r) => (parseFloat(r.spend) || 0) >= MIN_FETCH_SPEND);
+    const periodAdIds = [...new Set(detailTargetRows.map((r) => r.ad_id).filter(Boolean))];
     let thumbMap = {};
     let utmMap = {};
     let statusMap = {};
