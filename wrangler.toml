@@ -17,3 +17,5 @@ id = "d283e1d9fa8f4ec1b1a64f2818649cb0"
 # touch: deploy H&J server-side Shopline refresh button
 
 # touch: deploy parallel Shopline refresh + timeout
+
+# touch: deploy current-month-current-week Shopline refresh
