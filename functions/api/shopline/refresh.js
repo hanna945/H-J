@@ -121,43 +121,64 @@ export async function onRequestPost({ env }) {
   try {
     const today = taipeiToday();
 
-    // 月資料：本月 + 前 2 個月。歷史月份也重抓，確保退款/取消等後續狀態能被修正。
+    // 一次組好 3 個月份 + 4 個完整週次，並行抓取。
+    // 原本串行 7 次在 Worker 回應偏慢時會超過前端等待時間，造成按鈕一直停在「更新中」。
+    // Promise.allSettled 讓某一個區間失敗時不會拖垮其他區間。
+    const jobs = [];
+
     for (let offset = 0; offset >= -2; offset--) {
       const monthKey = monthKeyOffset(today.year, today.month, offset);
       const range = monthRange(monthKey);
-      try {
-        const data = await fetchShopline(workerUrl, secret, range.since, range.until);
-        await env.REPORT_KV.put(`shopline-month:${monthKey}`, JSON.stringify(data));
-        updated.push({
-          type: "month",
-          key: monthKey,
-          since: range.since,
-          until: range.until,
-          totalOrders: Number(data && data.meta && data.meta.totalOrders) || (Array.isArray(data && data.orders) ? data.orders.length : 0),
-        });
-      } catch (error) {
-        failed.push({ type: "month", key: monthKey, message: error && error.message ? error.message : String(error) });
-      }
+      jobs.push({
+        type: "month",
+        key: monthKey,
+        since: range.since,
+        until: range.until,
+        kvKey: `shopline-month:${monthKey}`,
+      });
     }
 
-    // 週資料：最近 4 個完整週次，不抓尚未結束的本週。
     for (let weeksBack = 1; weeksBack <= 4; weeksBack++) {
       const weekStart = lastCompletedWeekStart(today.year, today.month, today.day, weeksBack);
       const weekEnd = addDays(weekStart, 6);
-      try {
-        const data = await fetchShopline(workerUrl, secret, weekStart, weekEnd);
-        await env.REPORT_KV.put(`shopline-week:${weekStart}`, JSON.stringify(data));
-        updated.push({
-          type: "week",
-          key: weekStart,
-          since: weekStart,
-          until: weekEnd,
-          totalOrders: Number(data && data.meta && data.meta.totalOrders) || (Array.isArray(data && data.orders) ? data.orders.length : 0),
-        });
-      } catch (error) {
-        failed.push({ type: "week", key: weekStart, message: error && error.message ? error.message : String(error) });
-      }
+      jobs.push({
+        type: "week",
+        key: weekStart,
+        since: weekStart,
+        until: weekEnd,
+        kvKey: `shopline-week:${weekStart}`,
+      });
     }
+
+    const settled = await Promise.allSettled(
+      jobs.map(async (job) => {
+        const data = await fetchShopline(workerUrl, secret, job.since, job.until);
+        await env.REPORT_KV.put(job.kvKey, JSON.stringify(data));
+        return {
+          type: job.type,
+          key: job.key,
+          since: job.since,
+          until: job.until,
+          totalOrders:
+            Number(data && data.meta && data.meta.totalOrders) ||
+            (Array.isArray(data && data.orders) ? data.orders.length : 0),
+        };
+      })
+    );
+
+    settled.forEach((entry, index) => {
+      const job = jobs[index];
+      if (entry.status === "fulfilled") {
+        updated.push(entry.value);
+      } else {
+        const error = entry.reason;
+        failed.push({
+          type: job.type,
+          key: job.key,
+          message: error && error.message ? error.message : String(error),
+        });
+      }
+    });
 
     const result = {
       ok: failed.length === 0,
