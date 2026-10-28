@@ -3206,10 +3206,18 @@ function MetaAdsLedger() {
     setShoplineError(null);
     setShoplineNotice(null);
     try {
-      const res = await fetch("/api/shopline/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      let res;
+      try {
+        res = await fetch("/api/shopline/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (res.status === 409 || data.error === "refresh_in_progress") {
@@ -3228,7 +3236,11 @@ function MetaAdsLedger() {
         : "";
       setShoplineNotice(`SHOPLINE 更新完成：更新 ${updatedMonths} 個月份、${updatedWeeks} 個週次；目前共讀到 ${monthCount} 個月 / ${weekCount} 週資料${suffix}。`);
     } catch (e) {
-      setShoplineError(e && e.message ? e.message : "SHOPLINE 更新失敗，請再試一次。");
+      if (e && e.name === "AbortError") {
+        setShoplineError("SHOPLINE 更新超過 60 秒，這次先停止等待。請稍後再按一次。");
+      } else {
+        setShoplineError(e && e.message ? e.message : "SHOPLINE 更新失敗，請再試一次。");
+      }
     } finally {
       setShoplineLoading(false);
     }
