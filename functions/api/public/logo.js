@@ -61,6 +61,7 @@ export async function onRequestPost({ request, env }) {
 }
 
 export async function onRequestDelete({ env }) {
-  await env.REPORT_KV.delete(LOGO_KEY);
-  return json({ ok: true, brand: "hj", deleted: true });
+  const resetRecord = { dataUrl: null, updatedAt: new Date().toISOString(), reset: true };
+  await env.REPORT_KV.put(LOGO_KEY, JSON.stringify(resetRecord));
+  return json({ ok: true, brand: "hj", deleted: true, updatedAt: resetRecord.updatedAt });
 }
