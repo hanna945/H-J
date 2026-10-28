@@ -5,7 +5,7 @@ const DEFAULT_SHOPLINE_PROXY_SECRET = "0d7f31d2c6435ef57cafa4358dc7f0a5ad3bed45c
 
 const REFRESH_LOCK_KEY = "shopline-refresh:lock";
 const REFRESH_LAST_KEY = "shopline-refresh:last";
-const LOCK_SECONDS = 90;
+const LOCK_SECONDS = 60;
 
 function headers() {
   return {
@@ -121,34 +121,32 @@ export async function onRequestPost({ env }) {
   try {
     const today = taipeiToday();
 
-    // 一次組好 3 個月份 + 4 個完整週次，並行抓取。
-    // 原本串行 7 次在 Worker 回應偏慢時會超過前端等待時間，造成按鈕一直停在「更新中」。
-    // Promise.allSettled 讓某一個區間失敗時不會拖垮其他區間。
-    const jobs = [];
+    // H&J 手動更新只抓「本月 + 本週」最新資料。
+    // 過去月份與週次的共用 KV 保留不動；這顆按鈕的目的是快速補最新 Shopline，而不是重跑歷史資料。
+    const currentMonthKey = monthKeyOffset(today.year, today.month, 0);
+    const currentMonthRange = monthRange(currentMonthKey);
 
-    for (let offset = 0; offset >= -2; offset--) {
-      const monthKey = monthKeyOffset(today.year, today.month, offset);
-      const range = monthRange(monthKey);
-      jobs.push({
+    const todayIso = `${today.year}-${pad2(today.month)}-${pad2(today.day)}`;
+    const weekday = new Date(Date.UTC(today.year, today.month - 1, today.day)).getUTCDay();
+    const daysSinceMonday = (weekday + 6) % 7;
+    const currentWeekStart = addDays(todayIso, -daysSinceMonday);
+
+    const jobs = [
+      {
         type: "month",
-        key: monthKey,
-        since: range.since,
-        until: range.until,
-        kvKey: `shopline-month:${monthKey}`,
-      });
-    }
-
-    for (let weeksBack = 1; weeksBack <= 4; weeksBack++) {
-      const weekStart = lastCompletedWeekStart(today.year, today.month, today.day, weeksBack);
-      const weekEnd = addDays(weekStart, 6);
-      jobs.push({
+        key: currentMonthKey,
+        since: currentMonthRange.since,
+        until: currentMonthRange.until,
+        kvKey: `shopline-month:${currentMonthKey}`,
+      },
+      {
         type: "week",
-        key: weekStart,
-        since: weekStart,
-        until: weekEnd,
-        kvKey: `shopline-week:${weekStart}`,
-      });
-    }
+        key: currentWeekStart,
+        since: currentWeekStart,
+        until: todayIso,
+        kvKey: `shopline-week:${currentWeekStart}`,
+      },
+    ];
 
     const settled = await Promise.allSettled(
       jobs.map(async (job) => {
