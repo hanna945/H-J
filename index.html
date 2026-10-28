@@ -183,6 +183,15 @@
   }
   .mal-major-section-title[aria-expanded="true"] .mal-major-section-toggle { color: var(--blue-deep); border-color: var(--blue-deep); }
   .mal-major-collapsed-body { display: none !important; }
+  .mal-section-header-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+  .mal-print-selector-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .mal-print-selector-item {
+    display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px;
+    border: 1px solid var(--rule-soft); border-radius: 5px; background: #FBF7F0;
+    font-size: 12.5px; line-height: 1.45; cursor: pointer;
+  }
+  .mal-print-selector-item input { margin-top: 2px; flex: 0 0 auto; }
+  .mal-print-selector-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
   .mal-section-count { font-family: 'Noto Sans TC', sans-serif; font-weight: 400; font-size: 12px; color: var(--ink-soft); margin-left: 8px; }
   .mal-ad-header-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
   .mal-ad-header-row .mal-section-title-flex { margin: 0; border-bottom: none; padding-bottom: 0; flex: 1; }
@@ -448,6 +457,7 @@
     .mal-section-title { break-after: avoid; }
     .mal-major-collapsed-body { display: block !important; }
     .mal-major-section-toggle { display: none !important; }
+    .mal-print-excluded { display: none !important; }
     a[href]::after { content: none !important; }
     .mal-shell { max-width: 100%; }
     .mal-ledger-table th:first-child, .mal-ledger-table td:first-child { position: static !important; }
@@ -2318,7 +2328,7 @@ function OverallOpsSummary({ ads, ledgerAgg, prevAds, prevLedgerAgg, periodLabel
 
   return (
     <div className="mal-ops-summary">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
+      <div className="mal-section-header-row" style={{ marginBottom: 4 }}>
         <CollapsibleSectionTitle className="mal-section-title" style={{ marginBottom: 0 }}>整體營運{periodLabel ? `(${periodLabel})` : ""}</CollapsibleSectionTitle>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {allTags.map((tag) => (
@@ -2505,7 +2515,7 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, m
   }
   return (
     <div ref={reportRef} className="mal-ad-perf-report">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+      <div className="mal-section-header-row">
         <CollapsibleSectionTitle className="mal-section-title" style={{ marginBottom: 0 }}>
           投放成效{periodLabel ? `(${periodLabel})` : ""}
           {aiSaveStatus && (
@@ -2750,6 +2760,46 @@ function DonutChart({ data, size = 176, thickness = 30 }) {
 
 // ---------- main app ----------
 
+function getCollapsibleSectionContext(title) {
+  if (!title) return { anchorNode: null, boundaryParent: null };
+
+  let anchorNode = title;
+  let boundaryParent = title.parentElement;
+  const parent = title.parentElement;
+  const grandParent = parent && parent.parentElement;
+
+  // 只有「明確標記為標題列」的容器才往外提升。
+  // 舊版用 parent.children.length > 1 猜測，會把決策分析 / 同素材策略表這類正常內容容器誤判成標題列。
+  if (parent && (parent.classList.contains("mal-ad-header-row") || parent.classList.contains("mal-section-header-row"))) {
+    anchorNode = parent;
+    boundaryParent = parent.parentElement;
+  } else if (grandParent && (grandParent.classList.contains("mal-ad-header-row") || grandParent.classList.contains("mal-section-header-row"))) {
+    anchorNode = grandParent;
+    boundaryParent = grandParent.parentElement;
+  }
+
+  return { anchorNode, boundaryParent };
+}
+
+function getCollapsibleAffectedNodes(title) {
+  const { anchorNode, boundaryParent } = getCollapsibleSectionContext(title);
+  if (!anchorNode || !boundaryParent) return [];
+
+  const affected = [];
+  let node = anchorNode.nextElementSibling;
+  while (node) {
+    const isNextTitle =
+      (node.matches && node.matches(".mal-section-title")) ||
+      (node.querySelector && node.querySelector(":scope > .mal-section-title")) ||
+      (node.querySelector && node.querySelector(":scope > .mal-section-header-row > .mal-section-title")) ||
+      (node.querySelector && node.querySelector(":scope > .mal-ad-header-row > .mal-section-title"));
+    if (isNextTitle) break;
+    affected.push(node);
+    node = node.nextElementSibling;
+  }
+  return affected;
+}
+
 function CollapsibleSectionTitle({ children, className = "", style, ...props }) {
   const [collapsed, setCollapsed] = useState(true);
   const ref = useRef(null);
@@ -2757,30 +2807,7 @@ function CollapsibleSectionTitle({ children, className = "", style, ...props }) 
   useEffect(() => {
     const title = ref.current;
     if (!title) return;
-
-    let anchorNode = title;
-    let boundaryParent = title.parentElement;
-    // 標題若和右側排序/操作按鈕共用一列，保留整列，只收起下面的內容。
-    if (
-      boundaryParent &&
-      boundaryParent.children.length > 1 &&
-      title === boundaryParent.firstElementChild
-    ) {
-      anchorNode = boundaryParent;
-      boundaryParent = boundaryParent.parentElement;
-    }
-
-    if (!boundaryParent) return;
-    const affected = [];
-    let node = anchorNode.nextElementSibling;
-    while (node) {
-      const isNextTitle =
-        (node.matches && node.matches(".mal-section-title")) ||
-        (node.querySelector && node.querySelector(":scope > .mal-section-title"));
-      if (isNextTitle) break;
-      affected.push(node);
-      node = node.nextElementSibling;
-    }
+    const affected = getCollapsibleAffectedNodes(title);
 
     affected.forEach((el) => {
       if (collapsed) el.classList.add("mal-major-collapsed-body");
@@ -2904,6 +2931,9 @@ function MetaAdsLedger() {
   const [focusMonth, setFocusMonth] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [showPrintSelector, setShowPrintSelector] = useState(false);
+  const [printSections, setPrintSections] = useState([]);
+  const [selectedPrintSections, setSelectedPrintSections] = useState([]);
   const [showAllAds, setShowAllAds] = useState(false);
   const [adSortMode, setAdSortMode] = useState("spend");
   const [adStatusFilter, setAdStatusFilter] = useState("all"); // "all" | "active" | "inactive" —— 篩選要看投放中還是已停止的廣告
@@ -3624,12 +3654,48 @@ function MetaAdsLedger() {
     setConfirmDelete(null);
   }
 
+  function getCurrentPrintableSections() {
+    return Array.from(document.querySelectorAll(".mal-major-section-title"))
+      .map((title, index) => {
+        const toggle = title.querySelector(".mal-major-section-toggle");
+        const label = String(title.textContent || "")
+          .replace(toggle ? String(toggle.textContent || "") : "", "")
+          .replace(/\s+/g, " ")
+          .trim();
+        return { id: String(index), label: label || `區塊 ${index + 1}` };
+      });
+  }
+
   function handlePrintClick() {
-    // 跟匯出 PDF 一樣,列印前先展開所有收合中的「廣告成效分類」區塊,避免收合的內容沒有印出來。
+    const sections = getCurrentPrintableSections();
+    setPrintSections(sections);
+    setSelectedPrintSections(sections.map((section) => section.id));
+    setShowPrintSelector(true);
+  }
+
+  function cleanupPrintSelection() {
+    document.querySelectorAll(".mal-print-excluded").forEach((el) => el.classList.remove("mal-print-excluded"));
+  }
+
+  function printSelectedSections() {
+    if (!selectedPrintSections.length) return;
+
+    cleanupPrintSelection();
+    const selected = new Set(selectedPrintSections);
+    const titles = Array.from(document.querySelectorAll(".mal-major-section-title"));
+
+    titles.forEach((title, index) => {
+      const include = selected.has(String(index));
+      if (include) return;
+      title.classList.add("mal-print-excluded");
+      getCollapsibleAffectedNodes(title).forEach((el) => el.classList.add("mal-print-excluded"));
+    });
+
+    setShowPrintSelector(false);
+
+    // 列印前展開廣告成效分類內部自己的次級收合，避免使用者勾選該大項後只印到標題。
     window.dispatchEvent(new Event(PERF_EXPAND_ALL_EVENT));
-    // 「投放成效AI分析」是非同步從雲端讀取的,只等動畫影格(幾毫秒)不夠一次網路來回完成——
-    // 跟speedingscs同一個理由。明確預載入用到的字重,理由也跟speedingscs一樣:document.fonts.status
-    // 顯示穩定不代表特定字重真的可用,瀏覽器畫面會優雅退回但列印引擎不一定同樣寬容。
+
     (async () => {
       try {
         await Promise.all([
@@ -3641,11 +3707,20 @@ function MetaAdsLedger() {
           document.fonts.ready,
         ]);
       } catch {
-        /* 個別字重載入失敗也不中斷列印流程 */
+        /* 字型載入失敗不中斷列印 */
       }
+
+      const cleanup = () => {
+        cleanupPrintSelection();
+        window.removeEventListener("afterprint", cleanup);
+      };
+      window.addEventListener("afterprint", cleanup);
+
       setTimeout(() => {
         requestAnimationFrame(() => window.print());
-      }, 900);
+        // 部分瀏覽器不會穩定觸發 afterprint，額外保底清除畫面上的列印標記。
+        setTimeout(cleanup, 1500);
+      }, 250);
     })();
   }
 
@@ -6805,6 +6880,50 @@ function MetaAdsLedger() {
             <div className="mal-modal-actions">
               <button className="mal-btn" onClick={() => setShowTeamKeyModal(false)}>關閉</button>
               <button className="mal-btn mal-btn-primary" onClick={saveTeamKey}>儲存並測試連線</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPrintSelector && (
+        <div className="mal-modal-overlay">
+          <div className="mal-modal">
+            <h3>選擇要列印的大項</h3>
+            <p className="mal-modal-sub">只會列印目前分頁中你勾選的區塊。沒有勾選的內容不會進入 PDF。</p>
+
+            <div className="mal-print-selector-toolbar">
+              <button className="mal-btn" onClick={() => setSelectedPrintSections(printSections.map((section) => section.id))}>全選</button>
+              <button className="mal-btn" onClick={() => setSelectedPrintSections([])}>全部取消</button>
+            </div>
+
+            <div className="mal-print-selector-list">
+              {printSections.map((section) => (
+                <label className="mal-print-selector-item" key={section.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedPrintSections.includes(section.id)}
+                    onChange={(e) => {
+                      setSelectedPrintSections((prev) =>
+                        e.target.checked
+                          ? Array.from(new Set([...prev, section.id]))
+                          : prev.filter((id) => id !== section.id)
+                      );
+                    }}
+                  />
+                  <span>{section.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mal-modal-actions">
+              <button className="mal-btn" onClick={() => setShowPrintSelector(false)}>取消</button>
+              <button
+                className="mal-btn mal-btn-primary"
+                disabled={!selectedPrintSections.length}
+                onClick={printSelectedSections}
+              >
+                列印已勾選項目
+              </button>
             </div>
           </div>
         </div>
