@@ -56,6 +56,15 @@
     box-shadow: none;
   }
   .mal-stamp img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .mal-sponsor-month { margin-bottom: 12px; border: 1px solid var(--rule-soft); border-radius: 5px; background: var(--paper-raised); overflow: hidden; }
+  .mal-sponsor-month-summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 13px 16px; user-select: none; }
+  .mal-sponsor-month-summary::-webkit-details-marker { display: none; }
+  .mal-sponsor-month-summary:hover { background: #F7F1E8; }
+  .mal-sponsor-month-title { font-family: 'Noto Serif TC', serif; font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+  .mal-sponsor-month-summary .mal-section-count { margin-left: 0; flex: 1; }
+  .mal-sponsor-month-chevron { margin-left: auto; color: var(--ink-soft); font-size: 18px; line-height: 1; transition: transform .15s ease; }
+  .mal-sponsor-month[open] .mal-sponsor-month-chevron { transform: rotate(180deg); }
+  .mal-sponsor-month-body { padding: 0 10px 10px; border-top: 1px solid var(--rule-soft); }
   .mal-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .mal-header-actions-full, .mal-header-actions-secondary, .mal-header-actions-reset-row { display: contents; }
   .mal-title { font-family: 'Noto Serif TC', serif; font-weight: 500; font-size: 25px; margin: 0; letter-spacing: 0.02em; color: var(--ink); }
@@ -155,6 +164,25 @@
     position: absolute; left: -4px; top: -20px; line-height: 1; z-index: 0;
   }
   .mal-section-title::after { content: ""; flex: 0 1 60px; min-width: 24px; height: 1px; background: var(--rule); align-self: center; }
+  .mal-major-section-title { cursor: pointer; user-select: none; padding-right: 34px; }
+  .mal-major-section-title:hover { color: var(--blue-deep); }
+  .mal-major-section-toggle {
+    margin-left: auto;
+    min-width: 24px;
+    height: 24px;
+    border: 1px solid var(--rule);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Noto Sans TC', sans-serif;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--ink-soft);
+    background: var(--paper-raised);
+  }
+  .mal-major-section-title[aria-expanded="true"] .mal-major-section-toggle { color: var(--blue-deep); border-color: var(--blue-deep); }
+  .mal-major-collapsed-body { display: none !important; }
   .mal-section-count { font-family: 'Noto Sans TC', sans-serif; font-weight: 400; font-size: 12px; color: var(--ink-soft); margin-left: 8px; }
   .mal-ad-header-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
   .mal-ad-header-row .mal-section-title-flex { margin: 0; border-bottom: none; padding-bottom: 0; flex: 1; }
@@ -418,6 +446,8 @@
     .mal-perf-card:hover { transform: none !important; }
     .mal-perf-section-header { cursor: default; }
     .mal-section-title { break-after: avoid; }
+    .mal-major-collapsed-body { display: block !important; }
+    .mal-major-section-toggle { display: none !important; }
     a[href]::after { content: none !important; }
     .mal-shell { max-width: 100%; }
     .mal-ledger-table th:first-child, .mal-ledger-table td:first-child { position: static !important; }
@@ -2035,7 +2065,7 @@ function CrossCampaignCreativePanel({ currentRecord, cpaTarget = null, cpcTarget
 
   return (
     <div style={{ margin: "18px 0 22px" }}>
-      <h2 className="mal-section-title">同素材 × 不同策略對照表</h2>
+      <CollapsibleSectionTitle className="mal-section-title">同素材 × 不同策略對照表</CollapsibleSectionTitle>
       <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "-3px 0 12px" }}>
         CPA / CPC / CPM 分開比較，不會再把不同目標的 Campaign 混在同一張表。
       </p>
@@ -2152,7 +2182,7 @@ function DecisionIntelligencePanel({currentRecord,previousRecord,roasTarget=3,cp
     ["頻率",current.frequency!=null?current.frequency.toFixed(2):"—",deltas.frequency,true],
   ];
   return <div style={{margin:"22px 0 26px"}}>
-    <h2 className="mal-section-title">決策分析{periodLabel?` · ${periodLabel}`:""}</h2>
+    <CollapsibleSectionTitle className="mal-section-title">決策分析{periodLabel?` · ${periodLabel}`:""}</CollapsibleSectionTitle>
     <div className="mal-cards" style={{marginBottom:14}}>
       <div className="mal-card"><div className="mal-card-label">投放健康度</div><div className="mal-card-value">{score}</div><div style={{fontSize:11.5,color:"var(--ink-soft)"}}>100 分制 · 0 API</div></div>
       {metrics.map(([label,value,delta,invert])=><div className="mal-card" key={label}><div className="mal-card-label">{label}</div><div className="mal-card-value" style={{fontSize:22}}>{value}</div><div style={{fontSize:11.5}}>{previous?<><span style={{color:"var(--ink-soft)",marginRight:6}}>vs 前期</span><DeltaBadge value={delta} invert={invert}/></>:<span style={{color:"var(--ink-soft)"}}>前期無可比資料</span>}</div></div>)}
@@ -2174,7 +2204,7 @@ function computeAdSetStats(ads){
 }
 function AdSetAnalysis({ads,currencyCode}){
   const rows=computeAdSetStats(ads); if(!rows.length)return null;
-  return <><h2 className="mal-section-title">廣告組合診斷<span className="mal-section-count">({rows.length} 個 Ad Set)</span></h2><div className="mal-scroll-wrap" style={{overflowX:"auto"}}><table className="mal-table"><thead><tr><th>行銷活動</th><th>廣告組合</th><th>廣告數</th><th>花費</th><th>CPA</th><th>ROAS</th><th>CTR</th><th>CPM</th><th>CVR</th><th>頻率</th></tr></thead><tbody>{rows.map(r=><tr key={r.campaign+"||"+r.adSet}><td>{r.campaign}</td><td>{r.adSet}</td><td>{r.adCount}</td><td>{fmtMoney(r.spend,currencyCode)}</td><td>{r.cpa!=null?fmtMoney(r.cpa,currencyCode):"—"}</td><td>{r.roas!=null?`${r.roas.toFixed(2)}x`:"—"}</td><td>{r.ctr!=null?`${r.ctr.toFixed(2)}%`:"—"}</td><td>{r.cpm!=null?fmtMoney(r.cpm,currencyCode):"—"}</td><td>{r.cvr!=null?`${r.cvr.toFixed(2)}%`:"—"}</td><td>{r.frequency!=null?r.frequency.toFixed(2):"—"}</td></tr>)}</tbody></table></div></>;
+  return <><CollapsibleSectionTitle className="mal-section-title">廣告組合診斷<span className="mal-section-count">({rows.length} 個 Ad Set)</span></CollapsibleSectionTitle><div className="mal-scroll-wrap" style={{overflowX:"auto"}}><table className="mal-table"><thead><tr><th>行銷活動</th><th>廣告組合</th><th>廣告數</th><th>花費</th><th>CPA</th><th>ROAS</th><th>CTR</th><th>CPM</th><th>CVR</th><th>頻率</th></tr></thead><tbody>{rows.map(r=><tr key={r.campaign+"||"+r.adSet}><td>{r.campaign}</td><td>{r.adSet}</td><td>{r.adCount}</td><td>{fmtMoney(r.spend,currencyCode)}</td><td>{r.cpa!=null?fmtMoney(r.cpa,currencyCode):"—"}</td><td>{r.roas!=null?`${r.roas.toFixed(2)}x`:"—"}</td><td>{r.ctr!=null?`${r.ctr.toFixed(2)}%`:"—"}</td><td>{r.cpm!=null?fmtMoney(r.cpm,currencyCode):"—"}</td><td>{r.cvr!=null?`${r.cvr.toFixed(2)}%`:"—"}</td><td>{r.frequency!=null?r.frequency.toFixed(2):"—"}</td></tr>)}</tbody></table></div></>;
 }
 
 // 匯出「投放成效」報告成 Word 檔——用瀏覽器版的 docx 套件(CDN載入,不用後端),
@@ -2330,7 +2360,7 @@ function OverallOpsSummary({ ads, ledgerAgg, prevAds, prevLedgerAgg, periodLabel
   return (
     <div className="mal-ops-summary">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
-        <h2 className="mal-section-title" style={{ marginBottom: 0 }}>整體營運{periodLabel ? `(${periodLabel})` : ""}</h2>
+        <CollapsibleSectionTitle className="mal-section-title" style={{ marginBottom: 0 }}>整體營運{periodLabel ? `(${periodLabel})` : ""}</CollapsibleSectionTitle>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {allTags.map((tag) => (
             <span
@@ -2517,12 +2547,12 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, m
   return (
     <div ref={reportRef} className="mal-ad-perf-report">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-        <h2 className="mal-section-title" style={{ marginBottom: 0 }}>
+        <CollapsibleSectionTitle className="mal-section-title" style={{ marginBottom: 0 }}>
           投放成效{periodLabel ? `(${periodLabel})` : ""}
           {aiSaveStatus && (
             <span className={aiSaveStatus.startsWith("⚠") ? "mal-plan-savestatus mal-plan-savestatus-error" : "mal-plan-savestatus"}> · {aiSaveStatus}</span>
           )}
-        </h2>
+        </CollapsibleSectionTitle>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="mal-icon-btn" onClick={() => onEditRoasTarget && onEditRoasTarget(activeBrandId)}>
             ✎ ROAS目標
@@ -2770,6 +2800,113 @@ function DonutChart({ data, size = 176, thickness = 30 }) {
 
 // ---------- main app ----------
 
+function CollapsibleSectionTitle({ children, className = "", style, ...props }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const title = ref.current;
+    if (!title) return;
+
+    let anchorNode = title;
+    let boundaryParent = title.parentElement;
+    // 標題若和右側排序/操作按鈕共用一列，保留整列，只收起下面的內容。
+    if (
+      boundaryParent &&
+      boundaryParent.children.length > 1 &&
+      title === boundaryParent.firstElementChild
+    ) {
+      anchorNode = boundaryParent;
+      boundaryParent = boundaryParent.parentElement;
+    }
+
+    if (!boundaryParent) return;
+    const affected = [];
+    let node = anchorNode.nextElementSibling;
+    while (node) {
+      const isNextTitle =
+        (node.matches && node.matches(".mal-section-title")) ||
+        (node.querySelector && node.querySelector(":scope > .mal-section-title"));
+      if (isNextTitle) break;
+      affected.push(node);
+      node = node.nextElementSibling;
+    }
+
+    affected.forEach((el) => {
+      if (collapsed) el.classList.add("mal-major-collapsed-body");
+      else el.classList.remove("mal-major-collapsed-body");
+    });
+
+    return () => affected.forEach((el) => el.classList.remove("mal-major-collapsed-body"));
+  }, [collapsed, children]);
+
+  return (
+    <h2
+      {...props}
+      ref={ref}
+      className={`${className} mal-major-section-title ${collapsed ? "mal-major-section-title-collapsed" : ""}`}
+      style={style}
+      onClick={() => setCollapsed((v) => !v)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setCollapsed((v) => !v);
+        }
+      }}
+      aria-expanded={!collapsed}
+    >
+      {children}
+      <span className="mal-major-section-toggle" aria-hidden="true">{collapsed ? "＋" : "−"}</span>
+    </h2>
+  );
+}
+
+const HJ_DEFAULT_LOGO_SRC = "data:image/png;base64,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";
+const HJ_CUSTOM_LOGO_KEY = "hj-custom-logo-v1";
+function getSavedHjLogo() {
+  try { return localStorage.getItem(HJ_CUSTOM_LOGO_KEY) || ""; } catch { return ""; }
+}
+function setHjFavicon(src) {
+  if (!src) return;
+  document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach((link) => { link.href = src; });
+}
+function compressHjLogo(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\/(png|jpe?g|webp)$/i.test(file.type || "")) {
+      reject(new Error("請選擇 JPG、PNG 或 WEBP 圖片"));
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      reject(new Error("圖片請小於 8MB"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("讀取圖片失敗"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("圖片格式無法讀取"));
+      img.onload = () => {
+        const size = 512;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#1c1c1c";
+        ctx.fillRect(0, 0, size, size);
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.9));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function MetaAdsLedger() {
   // ---------- 網站密碼閘:state ----------
   // 密碼是你自己指定的,直接寫死在程式碼裡。輸入正確後,這台瀏覽器會記住,不用每次都重新輸入。
@@ -2778,6 +2915,24 @@ function MetaAdsLedger() {
   const [isUnlocked, setIsUnlocked] = useState(null); // null = 還在檢查中,避免畫面閃一下
   const [gatePasswordInput, setGatePasswordInput] = useState("");
   const [gateError, setGateError] = useState(null);
+  const [customHjLogo, setCustomHjLogo] = useState(() => getSavedHjLogo());
+  const [logoUploadNotice, setLogoUploadNotice] = useState("");
+
+  async function handleHjLogoFile(file) {
+    try {
+      const dataUrl = await compressHjLogo(file);
+      localStorage.setItem(HJ_CUSTOM_LOGO_KEY, dataUrl);
+      setCustomHjLogo(dataUrl);
+      setHjFavicon(dataUrl);
+      setLogoUploadNotice("Logo 已更新");
+    } catch (err) {
+      setLogoUploadNotice(err && err.message ? err.message : "Logo 上傳失敗");
+    }
+  }
+
+  useEffect(() => {
+    if (customHjLogo) setHjFavicon(customHjLogo);
+  }, [customHjLogo]);
 
   useEffect(() => {
     storage
@@ -4460,9 +4615,9 @@ function MetaAdsLedger() {
 
     return (
       <>
-        <h2 className="mal-section-title">
+        <CollapsibleSectionTitle className="mal-section-title">
           廣告成效分類<span className="mal-section-count">(花費 ≥ {MIN_AD_SPEND} 的廣告共 {qualifyingAds.length} 支,含已停止)</span>
-        </h2>
+        </CollapsibleSectionTitle>
         <div className="mal-perf-tabs">
           {PERF_ORDER.map((k) => (
             <button
@@ -4535,9 +4690,9 @@ function MetaAdsLedger() {
     const insights = computeCampaignInsights(campaignStats, currencyCode);
     return (
       <>
-        <h2 className="mal-section-title">
+        <CollapsibleSectionTitle className="mal-section-title">
           行銷活動整體成效分析<span className="mal-section-count">({campaignStats.length} 個投放中活動)</span>
-        </h2>
+        </CollapsibleSectionTitle>
         <div className="mal-week-analysis">
           <div className="mal-week-analysis-title">整體分析</div>
           <ul>
@@ -4575,9 +4730,9 @@ function MetaAdsLedger() {
 
     return (
       <>
-        <h2 className="mal-section-title">
+        <CollapsibleSectionTitle className="mal-section-title">
           折扣碼使用狀況<span className="mal-section-count">({discountRows.length} 個折扣碼)</span>
-        </h2>
+        </CollapsibleSectionTitle>
         {discountRows.length === 0 ? (
           <p style={{ color: "var(--ink-soft)", fontSize: 13.5 }}>這段期間沒有訂單使用折扣碼。</p>
         ) : (
@@ -4601,11 +4756,11 @@ function MetaAdsLedger() {
           </div>
         )}
 
-        <h2 className="mal-section-title">
+        <CollapsibleSectionTitle className="mal-section-title">
           廣告 ↔ Shopline 訂單對照<span className="mal-section-count">
             (依廣告 ID 比對,{matchedOrderCount}/{totalValidOrders} 筆已付款訂單成功配對)
           </span>
-        </h2>
+        </CollapsibleSectionTitle>
         {rows.length === 0 ? (
           <p style={{ color: "var(--ink-soft)", fontSize: 13.5 }}>沒有訂單能比對到任何一支已知的廣告(可能是這段期間廣告本身沒有訂單,或 Shopline 訂單裡的 utm_content 沒有對應到目前抓到的廣告 ID)。</p>
         ) : (
@@ -5250,7 +5405,15 @@ function MetaAdsLedger() {
     <div className="mal-shell">
       <div className="mal-header">
         <div className="mal-title-block">
-          <div className="mal-stamp" style={{ background: "#1c1c1c", padding: 0, overflow: "hidden" }}><img src="data:image/png;base64,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" alt="H&J logo" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+          <div className="mal-stamp" style={{ background: "#1c1c1c", padding: 0, overflow: "hidden", position: "relative" }}>
+            <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "Georgia, serif", fontWeight: 700, fontSize: 13 }}>H&J</span>
+            <img
+              src={customHjLogo || HJ_DEFAULT_LOGO_SRC}
+              alt="H&J logo"
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", position: "relative", zIndex: 1 }}
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+          </div>
           <div>
             <p className="mal-eyebrow">H&J Performance Archive</p>
             <h1 className="mal-title">H&J業績總表</h1>
@@ -5279,9 +5442,37 @@ function MetaAdsLedger() {
                 {cloudStatus === "connected" ? <><span className="mal-btn-emoji">☁️</span> {credentialName || "已連線"}</> : <><span className="mal-btn-emoji">🔑</span> 每日收益表密碼</>}
               </button>
             )}
+            <input
+              id="hj-logo-upload"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) handleHjLogoFile(file);
+                e.target.value = "";
+              }}
+            />
+            <button className="mal-btn" onClick={() => document.getElementById("hj-logo-upload").click()}>
+              🖼 上傳 Logo
+            </button>
+            {customHjLogo && (
+              <button
+                className="mal-btn"
+                onClick={() => {
+                  localStorage.removeItem(HJ_CUSTOM_LOGO_KEY);
+                  setCustomHjLogo("");
+                  setHjFavicon(HJ_DEFAULT_LOGO_SRC);
+                  setLogoUploadNotice("已恢復預設 Logo");
+                }}
+              >
+                ↺ 恢復預設
+              </button>
+            )}
             {activeBrandId === ONEPAGE_BRAND_ID && (
               <span style={{ fontSize: 11.5, color: "var(--ink-soft)", alignSelf: "center" }}>每日收益表已自動同步,不需要手動匯入</span>
             )}
+            {logoUploadNotice && <span style={{ fontSize: 11.5, color: "var(--ink-soft)", alignSelf: "center" }}>{logoUploadNotice}</span>}
             {(sortedKeys.length > 0 || sortedWeekKeys.length > 0) && (
               <button className="mal-btn mal-print-btn" onClick={handlePrintClick}><span className="mal-btn-emoji">🖨</span> 列印 / 匯出 PDF</button>
             )}
@@ -5547,12 +5738,12 @@ function MetaAdsLedger() {
 
           {sortedKeys.length > 1 && (
             <>
-              <h2 className="mal-section-title">廣告費 / 轉單 趨勢</h2>
+              <CollapsibleSectionTitle className="mal-section-title">廣告費 / 轉單 趨勢</CollapsibleSectionTitle>
               <div className="mal-chart-box">
                 <SimpleBarChart data={chartData} seriesA="廣告費" seriesB="轉單" colorA="#6E8577" colorB="#BFA054"
                   labelA="廣告費" labelB="轉單" fmtA={(v) => fmtMoney(v, currency)} fmtB={(v) => v} />
               </div>
-              <h2 className="mal-section-title">CPA / ROAS 趨勢</h2>
+              <CollapsibleSectionTitle className="mal-section-title">CPA / ROAS 趨勢</CollapsibleSectionTitle>
               <div className="mal-chart-box">
                 <SimpleLineChart data={chartData} seriesA="CPA" seriesB="ROAS" colorA="#A8607A" colorB="#7C8B54"
                   labelA={`CPA (${currency})`} labelB="ROAS (x)" fmtA={(v) => fmtMoney(v, currency)} fmtB={(v) => v + "x"} />
@@ -5603,7 +5794,7 @@ function MetaAdsLedger() {
               <div className="mal-chart-box" style={{ marginBottom: 18 }}>
                 <div className="mal-ad-header-row" style={{ marginBottom: 12 }}>
                   <div>
-                    <h2 className="mal-section-title" style={{ marginBottom: 4 }}>本月新投放摘要</h2>
+                    <CollapsibleSectionTitle className="mal-section-title" style={{ marginBottom: 4 }}>本月新投放摘要</CollapsibleSectionTitle>
                     <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
                       只計算 {focusMonth} 才開始投放的廣告；上月以前已開始投放者不列入。共 {monthStartedAds.length} 支，花費 {fmtMoney(monthStartedSpend, focusData.currency)}。
                     </div>
@@ -5653,9 +5844,9 @@ function MetaAdsLedger() {
           {focusData && visibleAds.length > 0 && (
             <>
               <div className="mal-ad-header-row">
-                <h2 className="mal-section-title mal-section-title-flex">
+                <CollapsibleSectionTitle className="mal-section-title mal-section-title-flex">
                   {monthLabel(focusMonth)} 廣告明細{adLaunchFilter === "month" ? " · 本月新投放" : ""}<span className="mal-section-count">({visibleAds.length} 支廣告{hiddenAdCount > 0 ? `,已隱藏 ${hiddenAdCount} 支花費低於 ${MIN_AD_SPEND} 的廣告` : ""})</span>
-                </h2>
+                </CollapsibleSectionTitle>
                 <select className="mal-ad-sort-select" value={adSortMode} onChange={(e) => setAdSortMode(e.target.value)}>
                   <option value="spend">排序:廣告費（高→低）</option>
                   <option value="cpa">排序:CPA（好→壞）</option>
@@ -5715,9 +5906,9 @@ function MetaAdsLedger() {
           {focusData && (
             activeBrandId === OFFICIAL_SITE_BRAND_ID ? (
               <>
-                <h2 className="mal-section-title">
+                <CollapsibleSectionTitle className="mal-section-title">
                   {monthLabel(focusMonth)} Shopline 對照(官網實際 vs Meta 回報)
-                </h2>
+                </CollapsibleSectionTitle>
                 {shoplineMonthsData[focusMonth] ? (
                   <ShoplineComparisonView
                     record={shoplineMonthsData[focusMonth]}
@@ -5735,9 +5926,9 @@ function MetaAdsLedger() {
               </>
             ) : (
               <>
-                <h2 className="mal-section-title">
+                <CollapsibleSectionTitle className="mal-section-title">
                   {monthLabel(focusMonth)} 一頁式正確業績(後台實際 vs Meta 回報)
-                </h2>
+                </CollapsibleSectionTitle>
                 <LedgerVsMetaComparison
                   ads={filterAdsByStatus(focusData.ads, adStatusFilter, adSearchKeyword)}
                   currencyCode={focusData.currency}
@@ -5748,7 +5939,7 @@ function MetaAdsLedger() {
             )
           )}
 
-          <h2 className="mal-section-title">每月明細</h2>
+          <CollapsibleSectionTitle className="mal-section-title">每月明細</CollapsibleSectionTitle>
           <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
             <table className="mal-table">
               <thead><tr><th>月份</th><th>廣告費</th><th>轉單</th><th>轉單金額</th><th>CPA</th><th>ROAS</th><th></th></tr></thead>
@@ -5913,7 +6104,7 @@ function MetaAdsLedger() {
                 {focusWeekData.ads && filterAdsByStatus(focusWeekData.ads.filter((a) => a.spend >= MIN_AD_SPEND), adStatusFilter, adSearchKeyword).length > 0 && (
                   <>
                     <div className="mal-ad-header-row">
-                      <h2 className="mal-section-title mal-section-title-flex">{weekLabel(focusWeek)} 廣告明細</h2>
+                      <CollapsibleSectionTitle className="mal-section-title mal-section-title-flex">{weekLabel(focusWeek)} 廣告明細</CollapsibleSectionTitle>
                       <select className="mal-ad-sort-select" value={adSortMode} onChange={(e) => setAdSortMode(e.target.value)}>
                         <option value="spend">排序:廣告費（高→低）</option>
                         <option value="cpa">排序:CPA（好→壞）</option>
@@ -5965,9 +6156,9 @@ function MetaAdsLedger() {
 
                 {activeBrandId === OFFICIAL_SITE_BRAND_ID ? (
                   <>
-                    <h2 className="mal-section-title">
+                    <CollapsibleSectionTitle className="mal-section-title">
                       {weekLabel(focusWeek)} Shopline 對照(官網實際 vs Meta 回報)
-                    </h2>
+                    </CollapsibleSectionTitle>
                     {shoplineWeeksData[focusWeek] ? (
                       <ShoplineComparisonView
                         record={shoplineWeeksData[focusWeek]}
@@ -5985,9 +6176,9 @@ function MetaAdsLedger() {
                   </>
                 ) : (
                   <>
-                    <h2 className="mal-section-title">
+                    <CollapsibleSectionTitle className="mal-section-title">
                       {weekLabel(focusWeek)} 一頁式正確業績(後台實際 vs Meta 回報)
-                    </h2>
+                    </CollapsibleSectionTitle>
                     <LedgerVsMetaComparison
                       ads={filterAdsByStatus(focusWeekData.ads, adStatusFilter, adSearchKeyword)}
                       currencyCode={focusWeekData.currency}
@@ -6034,7 +6225,7 @@ function MetaAdsLedger() {
           </div>
         ) : (
           <>
-            <h2 className="mal-section-title">業配廣告總覽<span className="mal-section-count">(名稱或行銷活動含「業配」的廣告,累計所有月份)</span></h2>
+            <CollapsibleSectionTitle className="mal-section-title">業配廣告總覽<span className="mal-section-count">(名稱或行銷活動含「業配」的廣告,累計所有月份)</span></CollapsibleSectionTitle>
             <div className="mal-cards">
               <div className="mal-card">
                 <div className="mal-card-label">業配總花費</div>
@@ -6054,58 +6245,61 @@ function MetaAdsLedger() {
               </div>
             </div>
 
-            <h2 className="mal-section-title">業配廣告費 / 轉單 趨勢</h2>
+            <CollapsibleSectionTitle className="mal-section-title">業配廣告費 / 轉單 趨勢</CollapsibleSectionTitle>
             <div className="mal-chart-box">
               <SimpleBarChart data={sponsorChartData} seriesA="廣告費" seriesB="轉單" colorA="#6E8577" colorB="#BFA054"
                 labelA="廣告費" labelB="轉單" fmtA={(v) => fmtMoney(v, currency)} fmtB={(v) => v} />
             </div>
-            <h2 className="mal-section-title">業配 CPA / ROAS 趨勢</h2>
+            <CollapsibleSectionTitle className="mal-section-title">業配 CPA / ROAS 趨勢</CollapsibleSectionTitle>
             <div className="mal-chart-box">
               <SimpleLineChart data={sponsorChartData} seriesA="CPA" seriesB="ROAS" colorA="#A8607A" colorB="#7C8B54"
                 labelA={`CPA (${currency})`} labelB="ROAS (x)" fmtA={(v) => fmtMoney(v, currency)} fmtB={(v) => v + "x"} />
             </div>
 
-            <h2 className="mal-section-title">逐月業配廣告明細</h2>
+            <CollapsibleSectionTitle className="mal-section-title">逐月業配廣告明細</CollapsibleSectionTitle>
             {sponsorMonthsWithData.map((m) => (
-              <div key={m.monthKey} style={{ marginBottom: 22 }}>
-                <div className="mal-week-analysis-title">
-                  {m.month}
+              <details key={m.monthKey} className="mal-sponsor-month">
+                <summary className="mal-sponsor-month-summary">
+                  <span className="mal-sponsor-month-title">{m.month}</span>
                   <span className="mal-section-count">
-                    (花費 {fmtMoney(m.spend, currency)}、轉單 {fmtInt(m.conversions)}、CPA {m.cpa !== null ? fmtMoney(m.cpa, currency) : "—"}、ROAS {m.roas !== null ? `${m.roas.toFixed(2)}x` : "—"})
+                    花費 {fmtMoney(m.spend, currency)} · 轉單 {fmtInt(m.conversions)} · CPA {m.cpa !== null ? fmtMoney(m.cpa, currency) : "—"} · ROAS {m.roas !== null ? `${m.roas.toFixed(2)}x` : "—"}
                   </span>
-                </div>
-                <div className="mal-ad-list">
-                  {m.ads.map((ad, i) => {
-                  const fbLibLink = fbPostLink(ad.postId);
-                    const adCpa = ad.conversions > 0 ? ad.spend / ad.conversions : null;
-                    const adRoas = ad.spend > 0 && ad.revenue > 0 ? ad.revenue / ad.spend : null;
-                    const fbLink = fbAdsManagerLink(months[m.monthKey].accountId, ad.adIds);
-                    return (
-                      <div className={`mal-ad-row ${ad.active === false ? "mal-ad-row-inactive" : ""}`} key={ad.name + i}>
-                        <AdThumb src={ad.image} alt={ad.name} />
-                        <div className="mal-ad-info">
-                          <div className="mal-ad-name" title={ad.name}>{ad.name}<ActiveBadge active={ad.active} /></div>
-                          {ad.utm ? (
-                            <div className="mal-ad-utm" title={ad.utm}>{ad.utm}</div>
-                          ) : <div className="mal-ad-utm mal-ad-utm-empty">未提供追蹤代碼</div>}
-                          {ad.startDate && <span className="mal-ad-startdate">{fmtStartDate(ad.startDate)} 開始投放</span>}
-                          {ad.postPublishDate ? <span className="mal-ad-startdate">📅 {fmtStartDate(ad.postPublishDate)} 前台發佈</span> : <span className="mal-ad-startdate">📌 後台直接發佈</span>}
-                          {fbLink && <a className="mal-ad-fblink" href={fbLink} target="_blank" rel="noopener noreferrer">↗ 前往廣告</a>}
-                          {fbLibLink && <a className="mal-ad-fblink" href={fbLibLink} target="_blank" rel="noopener noreferrer">↗ 前往 FB 前台</a>}
-                        {!fbLibLink && fbAdLibraryFallbackLink(derivePageIdFromAds(m.ads)) && <a className="mal-ad-fblink" href={fbAdLibraryFallbackLink(derivePageIdFromAds(m.ads))} target="_blank" rel="noopener noreferrer" title="沒有找到對應貼文,改連到廣告檔案庫查詢,不一定查得到">↗ 前往廣告檔案庫查看(備用)</a>}
+                  <span className="mal-sponsor-month-chevron" aria-hidden="true">⌄</span>
+                </summary>
+                <div className="mal-sponsor-month-body">
+                  <div className="mal-ad-list">
+                    {m.ads.map((ad, i) => {
+                    const fbLibLink = fbPostLink(ad.postId);
+                      const adCpa = ad.conversions > 0 ? ad.spend / ad.conversions : null;
+                      const adRoas = ad.spend > 0 && ad.revenue > 0 ? ad.revenue / ad.spend : null;
+                      const fbLink = fbAdsManagerLink(months[m.monthKey].accountId, ad.adIds);
+                      return (
+                        <div className={`mal-ad-row ${ad.active === false ? "mal-ad-row-inactive" : ""}`} key={ad.name + i}>
+                          <AdThumb src={ad.image} alt={ad.name} />
+                          <div className="mal-ad-info">
+                            <div className="mal-ad-name" title={ad.name}>{ad.name}<ActiveBadge active={ad.active} /></div>
+                            {ad.utm ? (
+                              <div className="mal-ad-utm" title={ad.utm}>{ad.utm}</div>
+                            ) : <div className="mal-ad-utm mal-ad-utm-empty">未提供追蹤代碼</div>}
+                            {ad.startDate && <span className="mal-ad-startdate">{fmtStartDate(ad.startDate)} 開始投放</span>}
+                            {ad.postPublishDate ? <span className="mal-ad-startdate">📅 {fmtStartDate(ad.postPublishDate)} 前台發佈</span> : <span className="mal-ad-startdate">📌 後台直接發佈</span>}
+                            {fbLink && <a className="mal-ad-fblink" href={fbLink} target="_blank" rel="noopener noreferrer">↗ 前往廣告</a>}
+                            {fbLibLink && <a className="mal-ad-fblink" href={fbLibLink} target="_blank" rel="noopener noreferrer">↗ 前往 FB 前台</a>}
+                          {!fbLibLink && fbAdLibraryFallbackLink(derivePageIdFromAds(m.ads)) && <a className="mal-ad-fblink" href={fbAdLibraryFallbackLink(derivePageIdFromAds(m.ads))} target="_blank" rel="noopener noreferrer" title="沒有找到對應貼文,改連到廣告檔案庫查詢,不一定查得到">↗ 前往廣告檔案庫查看(備用)</a>}
+                          </div>
+                          <div className="mal-ad-stats">
+                            <div><span>廣告費</span>{fmtMoney(ad.spend, currency)}</div>
+                            <div><span>轉單</span>{fmtInt(ad.conversions)}</div>
+                            <div><span>轉單金額</span>{ad.revenue > 0 ? fmtMoney(ad.revenue, currency) : "—"}</div>
+                            <div><span>CPA</span>{adCpa !== null ? fmtMoney(adCpa, currency) : "—"}</div>
+                            <div><span>ROAS</span>{adRoas !== null ? `${adRoas.toFixed(2)}x` : "—"}</div>
+                          </div>
                         </div>
-                        <div className="mal-ad-stats">
-                          <div><span>廣告費</span>{fmtMoney(ad.spend, currency)}</div>
-                          <div><span>轉單</span>{fmtInt(ad.conversions)}</div>
-                          <div><span>轉單金額</span>{ad.revenue > 0 ? fmtMoney(ad.revenue, currency) : "—"}</div>
-                          <div><span>CPA</span>{adCpa !== null ? fmtMoney(adCpa, currency) : "—"}</div>
-                          <div><span>ROAS</span>{adRoas !== null ? `${adRoas.toFixed(2)}x` : "—"}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              </details>
             ))}
           </>
         )
@@ -6185,10 +6379,10 @@ function MetaAdsLedger() {
 
               {dailySubMode === "matrix" && (
                 <>
-                  <h2 className="mal-section-title">
+                  <CollapsibleSectionTitle className="mal-section-title">
                     {activeOfficialDailyMonth ? monthLabel(activeOfficialDailyMonth) : ""} 每日營收矩陣
                     <span className="mal-section-count">({officialDailyRows.length} 天有訂單)</span>
-                  </h2>
+                  </CollapsibleSectionTitle>
                   <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
                     <table className="mal-table">
                       <thead>
@@ -6322,10 +6516,10 @@ function MetaAdsLedger() {
                       )}
                     </div>
 
-                    <h2 className="mal-section-title">
+                    <CollapsibleSectionTitle className="mal-section-title">
                       {activeFocusDay} 業績比例分析
                       <span className="mal-section-count">(後台實際數據,依當日營收由高到低排序)</span>
-                    </h2>
+                    </CollapsibleSectionTitle>
                     {(() => {
                       const dayCodes = Object.entries(focusDayRecord.byCode).sort((a, b) => b[1].revenue - a[1].revenue);
                       const dayTotalRevenue = dayCodes.reduce((sum, [, v]) => sum + v.revenue, 0);
@@ -6403,10 +6597,10 @@ function MetaAdsLedger() {
 
             {dailySubMode === "matrix" && (
               <>
-                <h2 className="mal-section-title">
+                <CollapsibleSectionTitle className="mal-section-title">
                   {activeDailyMonth ? monthLabel(activeDailyMonth) : ""} 每日 x 產品代號矩陣
                   <span className="mal-section-count">(表格較寬,可左右滑動)</span>
-                </h2>
+                </CollapsibleSectionTitle>
                 <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
                   <table className="mal-table mal-ledger-table">
                     <thead>
@@ -6541,10 +6735,10 @@ function MetaAdsLedger() {
 
       {viewMode === "coupon" && (
         <>
-          <h2 className="mal-section-title">
+          <CollapsibleSectionTitle className="mal-section-title">
             折價券查詢
             <span className="mal-section-count">(選一段時間查詢,含使用狀況、轉單金額、轉單來源)</span>
-          </h2>
+          </CollapsibleSectionTitle>
 
           <div className="mal-cards" style={{ gridTemplateColumns: "1fr 1fr auto", alignItems: "end", marginBottom: 18 }}>
             <div className="mal-field" style={{ margin: 0 }}>
