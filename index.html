@@ -523,39 +523,35 @@ const SHARED_EXACT_KEYS = new Set(["meta-api-brands", "meta-api-cpa-thresholds",
 // 如果這個網站不是在 Claude Artifact 裡打開(window.storage 不存在),就改試著打 /api/kv 這個後端
 // (要搭配另外附上的 functions/api/kv 一起部署到 Cloudflare Pages 才會有作用)。
 // 團隊密碼只存在使用者自己瀏覽器的 localStorage,不會經過共用資料庫,純粹是拿來認證每個裝置能不能讀寫。
-const CLOUD_KV_BASE = "/api/kv";
-const TEAM_KEY_STORAGE_KEY = "ad-ledger-team-key";
-function getTeamKey() {
-  try { return localStorage.getItem(TEAM_KEY_STORAGE_KEY) || ""; } catch { return ""; }
-}
-function setTeamKey(v) {
-  try {
-    if (v) localStorage.setItem(TEAM_KEY_STORAGE_KEY, v);
-    else localStorage.removeItem(TEAM_KEY_STORAGE_KEY);
-  } catch {}
-}
-function teamKeyHeaders() {
-  const k = getTeamKey();
-  return k ? { "X-Team-Key": k } : {};
-}
-// cloudStatus: "unknown"(還沒測)|"connected"(接得上)|"unauthorized"(接得上但密碼不對)|"unavailable"(沒有部署這個API,例如單純開檔案或還沒佈署Functions)
+const PUBLIC_READ_ONLY = true;
+const PUBLIC_HJ_KV_BASE = "/api/public/hj";
 let cloudStatusCache = "unknown";
-let credentialNameCache = ""; // 目前這組密碼對應的顯示名稱(依 Cloudflare 的 TEAM_CREDENTIALS 設定),沒有多身份設定時是空字串。
-let credentialBrandsCache = null; // 這組密碼「自帶」的品牌清單([{id,name}, ...]),來自 TEAM_CREDENTIALS 本身;最高權限身份或沒設定多身份時是 null。
-async function probeCloud(force) {
-  if (cloudStatusCache !== "unknown" && !force) return cloudStatusCache;
+let credentialNameCache = "H&J 公開唯讀";
+let credentialBrandsCache = [
+  { name: "H&J官網業績", id: "436280797192761" },
+  { name: "H&J 一頁業績", id: "2157995930925784" },
+];
+
+function getTeamKey() { return ""; }
+function setTeamKey() {}
+function teamKeyHeaders() { return {}; }
+
+async function publicKvRequest(params) {
+  const qs = new URLSearchParams(params);
+  const res = await fetch(`${PUBLIC_HJ_KV_BASE}?${qs.toString()}`, { cache: "no-store" });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(json.error || `public H&J feed failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+
+async function probeCloud() {
   try {
-    const res = await fetch(`${CLOUD_KV_BASE}/list?prefix=`, { headers: teamKeyHeaders() });
-    if (res.status === 401) cloudStatusCache = "unauthorized";
-    else if (res.ok) {
-      cloudStatusCache = "connected";
-      try {
-        const j = await res.json();
-        credentialNameCache = (j && j.credentialName) || "";
-        credentialBrandsCache = (j && j.credentialBrands) || null;
-      } catch { credentialNameCache = ""; credentialBrandsCache = null; }
-    }
-    else cloudStatusCache = "unavailable";
+    await publicKvRequest({ op: "health" });
+    cloudStatusCache = "connected";
   } catch {
     cloudStatusCache = "unavailable";
   }
@@ -563,102 +559,65 @@ async function probeCloud(force) {
 }
 function getCredentialName() { return credentialNameCache; }
 function getCredentialBrands() { return credentialBrandsCache; }
-// 把「共用品牌清單」(meta-api-brands)跟「目前登入身份自帶的品牌清單」(如果 TEAM_CREDENTIALS 有設定 {id,name} 格式)合併成
-// 最終可切換的品牌清單。身份自帶的清單優先排在前面,共用清單裡其他不在身份清單內的品牌(例如最高權限使用者額外存的常用品牌)接在後面。
 function mergeCredentialBrands(cleanedSharedBrands) {
-  const credBrands = getCredentialBrands();
-  if (!credBrands || !credBrands.length) return cleanedSharedBrands;
   const byId = {};
-  cleanedSharedBrands.forEach((b) => { byId[b.id] = b; });
-  credBrands.forEach((b) => { if (!byId[b.id]) byId[b.id] = { id: b.id, name: b.name }; });
-  const credIds = new Set(credBrands.map((b) => b.id));
-  return [...credBrands.map((b) => byId[b.id]), ...cleanedSharedBrands.filter((b) => !credIds.has(b.id))];
+  (cleanedSharedBrands || []).forEach((b) => { if (b && b.id) byId[b.id] = b; });
+  credentialBrandsCache.forEach((b) => { byId[b.id] = b; });
+  return credentialBrandsCache.map((b) => byId[b.id] || b);
 }
+
 const cloudStorage = {
   async get(key) {
-    const res = await fetch(`${CLOUD_KV_BASE}/item/${encodeURIComponent(key)}`, { headers: teamKeyHeaders() });
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error("cloud get failed: " + res.status);
-    return await res.json();
+    try {
+      return await publicKvRequest({ op: "get", key });
+    } catch (e) {
+      if (e && e.status === 404) return null;
+      throw e;
+    }
   },
-  async set(key, value) {
-    const res = await fetch(`${CLOUD_KV_BASE}/item/${encodeURIComponent(key)}`, {
-      method: "PUT", headers: { ...teamKeyHeaders(), "Content-Type": "text/plain" }, body: value,
-    });
-    if (!res.ok) throw new Error("cloud set failed: " + res.status);
-    return await res.json();
+  async set() {
+    throw new Error("H&J 公開報表為唯讀模式");
   },
-  async delete(key) {
-    const res = await fetch(`${CLOUD_KV_BASE}/item/${encodeURIComponent(key)}`, { method: "DELETE", headers: teamKeyHeaders() });
-    if (!res.ok) throw new Error("cloud delete failed: " + res.status);
-    return await res.json();
+  async delete() {
+    throw new Error("H&J 公開報表為唯讀模式");
   },
   async list(prefix) {
-    const res = await fetch(`${CLOUD_KV_BASE}/list?prefix=${encodeURIComponent(prefix)}`, { headers: teamKeyHeaders() });
-    if (!res.ok) throw new Error("cloud list failed: " + res.status);
-    return await res.json();
+    return await publicKvRequest({ op: "list", prefix });
   },
 };
 
 const storage = {
   async get(key) {
     if (!isSharedKey(key)) return localOnlyStorage.get(key);
-    if (HAS_SHARED_STORAGE) {
-      try { return await window.storage.get(key, true); } catch { return null; }
-    }
     if ((await probeCloud()) === "connected") {
-      try { return await cloudStorage.get(key); } catch { /* 掉線就退回本機,不讓畫面壞掉 */ }
+      try { return await cloudStorage.get(key); } catch {}
     }
-    return localOnlyStorage.get(key);
+    return null;
   },
   async set(key, value) {
     if (!isSharedKey(key)) return localOnlyStorage.set(key, value);
-    if (HAS_SHARED_STORAGE) return await window.storage.set(key, value, true);
-    if ((await probeCloud()) === "connected") {
-      try { return await cloudStorage.set(key, value); } catch { /* 掉線就退回本機 */ }
-    }
-    return localOnlyStorage.set(key, value);
+    throw new Error("H&J 公開報表為唯讀模式");
   },
   async delete(key) {
     if (!isSharedKey(key)) return localOnlyStorage.delete(key);
-    if (HAS_SHARED_STORAGE) {
-      try { return await window.storage.delete(key, true); } catch { return null; }
-    }
-    if ((await probeCloud()) === "connected") {
-      try { return await cloudStorage.delete(key); } catch {}
-    }
-    return localOnlyStorage.delete(key);
+    throw new Error("H&J 公開報表為唯讀模式");
   },
   async list(prefix) {
     if (!isSharedKey(prefix)) return localOnlyStorage.list(prefix);
-    if (HAS_SHARED_STORAGE) {
-      try { const res = await window.storage.list(prefix, true); return res || { keys: [] }; } catch { return { keys: [] }; }
-    }
     if ((await probeCloud()) === "connected") {
       try { return await cloudStorage.list(prefix); } catch {}
     }
-    return localOnlyStorage.list(prefix);
+    return { keys: [] };
   },
 };
 
-// 「嚴格版」存讀——跟上面 storage.get/set 的差異是:連不上雲端/雲端回錯,這裡會直接把錯誤丟出去,
-// 不會悄悄退回讀寫本機。給AI分析存檔這種「使用者會期待存到雲端、跨裝置看得到」的功能用。
 async function storageSetStrict(key, value) {
   if (!isSharedKey(key)) return localOnlyStorage.set(key, value);
-  if (HAS_SHARED_STORAGE) return await window.storage.set(key, value, true);
-  const status = await probeCloud();
-  if (status !== "connected") {
-    throw new Error(status === "unauthorized" ? "登入身份的金鑰不對,雲端拒絕存取。" : "目前連不上雲端資料庫。");
-  }
-  return await cloudStorage.set(key, value);
+  throw new Error("H&J 公開報表為唯讀模式");
 }
 async function storageGetStrict(key) {
   if (!isSharedKey(key)) return localOnlyStorage.get(key);
-  if (HAS_SHARED_STORAGE) return await window.storage.get(key, true);
-  const status = await probeCloud();
-  if (status !== "connected") {
-    throw new Error(status === "unauthorized" ? "登入身份的金鑰不對,雲端拒絕存取。" : "目前連不上雲端資料庫。");
-  }
+  if ((await probeCloud()) !== "connected") throw new Error("目前連不上 H&J 共用資料");
   return await cloudStorage.get(key);
 }
 
@@ -2554,9 +2513,11 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, m
           )}
         </CollapsibleSectionTitle>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="mal-icon-btn" onClick={() => onEditRoasTarget && onEditRoasTarget(activeBrandId)}>
-            ✎ ROAS目標
-          </button>
+          {onEditRoasTarget && (
+            <button className="mal-icon-btn" onClick={() => onEditRoasTarget(activeBrandId)}>
+              ✎ ROAS目標
+            </button>
+          )}
           {onEditMonthlyBudget && <button className="mal-icon-btn" onClick={() => onEditMonthlyBudget(activeBrandId)}>💰 月預算</button>}
           <button className="mal-icon-btn" onClick={generateAiInsights} disabled={aiLoading}>
             {aiLoading ? "計算中…" : "⚙️ 自動判斷"}
@@ -2725,18 +2686,7 @@ function AdPerformanceReport({ ads, currencyCode, periodLabel, roasTarget = 3, m
             <span style={{ fontWeight: 400, fontSize: 11, color: "var(--ink-soft)" }}>
               ({aiInsights ? "AI 生成" : "規則統計產生,非 AI 生成文字"})
             </span>
-            <button
-              className="mal-icon-btn"
-              style={{ marginLeft: "auto", fontSize: 11, padding: "3px 10px" }}
-              onClick={() => (isEditingInsights ? saveEditedInsights() : startEditingInsights())}
-            >
-              {isEditingInsights ? "💾 儲存" : "✎ 編輯"}
-            </button>
-            {isEditingInsights && (
-              <button className="mal-icon-btn" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => setIsEditingInsights(false)}>
-                取消
-              </button>
-            )}
+
           </div>
           {isEditingInsights ? (
             <textarea
@@ -2908,13 +2858,7 @@ function compressHjLogo(file) {
 }
 
 function MetaAdsLedger() {
-  // ---------- 網站密碼閘:state ----------
-  // 密碼是你自己指定的,直接寫死在程式碼裡。輸入正確後,這台瀏覽器會記住,不用每次都重新輸入。
-  const SITE_ACCESS_PASSWORD = "hj20262026";
-  const SITE_UNLOCK_KEY = "site-unlocked";
-  const [isUnlocked, setIsUnlocked] = useState(null); // null = 還在檢查中,避免畫面閃一下
-  const [gatePasswordInput, setGatePasswordInput] = useState("");
-  const [gateError, setGateError] = useState(null);
+  // 公開唯讀模式：不需要網站密碼，資料只從 /api/public/hj 讀取。
   const [customHjLogo, setCustomHjLogo] = useState(() => getSavedHjLogo());
   const [logoUploadNotice, setLogoUploadNotice] = useState("");
 
@@ -2934,13 +2878,6 @@ function MetaAdsLedger() {
     if (customHjLogo) setHjFavicon(customHjLogo);
   }, [customHjLogo]);
 
-  useEffect(() => {
-    storage
-      .get(SITE_UNLOCK_KEY)
-      .then((res) => setIsUnlocked(!!(res && res.value === "1")))
-      .catch(() => setIsUnlocked(false));
-  }, []);
-
   // 寬表格(.mal-scroll-wrap,矩陣總覽/各種明細表都會用到)在滑鼠垂直滾輪 + 沒有觸控板的情況下很難左右捲動,
   // 只能用底部細細的捲軸慢慢拖。這裡用「事件代理」在最外層攔截滾輪事件:滑鼠停在寬表格上方、
   // 而且這個表格「真的超出可視寬度需要捲動」時,把垂直滾動量直接轉成水平捲動。
@@ -2959,17 +2896,6 @@ function MetaAdsLedger() {
     document.addEventListener("wheel", handleWheel, { passive: false });
     return () => document.removeEventListener("wheel", handleWheel);
   }, []);
-
-  function handleUnlock(e) {
-    e.preventDefault();
-    if (gatePasswordInput === SITE_ACCESS_PASSWORD) {
-      setGateError(null);
-      setIsUnlocked(true);
-      storage.set(SITE_UNLOCK_KEY, "1").catch(() => {});
-    } else {
-      setGateError("密碼不對,再試一次。");
-    }
-  }
 
   const [months, setMonths] = useState({});
   const [loading, setLoading] = useState(true);
@@ -3060,11 +2986,11 @@ function MetaAdsLedger() {
   const [teamKeyInput, setTeamKeyInput] = useState(getTeamKey());
 
   // ---------- Shopline 對照:state ----------
-  // Worker 網址跟驗證密碼已經固定,直接寫死在程式碼裡。
-  const DEFAULT_SHOPLINE_WORKER_URL = "https://shopline-proxy.hanna-104.workers.dev";
-  const SHOPLINE_PROXY_SECRET = "0d7f31d2c6435ef57cafa4358dc7f0a5ad3bed45c31eb13d";
-  const [shoplineWorkerUrl, setShoplineWorkerUrl] = useState(DEFAULT_SHOPLINE_WORKER_URL);
-  const [shoplineWorkerUrlInput, setShoplineWorkerUrlInput] = useState(DEFAULT_SHOPLINE_WORKER_URL);
+  // 公開頁只讀取已同步進共用資料庫的 Shopline 報表，不持有 Worker 網址或驗證密鑰。
+  const DEFAULT_SHOPLINE_WORKER_URL = "";
+  const SHOPLINE_PROXY_SECRET = "";
+  const [shoplineWorkerUrl, setShoplineWorkerUrl] = useState("");
+  const [shoplineWorkerUrlInput, setShoplineWorkerUrlInput] = useState("");
   const [shoplineWeeksData, setShoplineWeeksData] = useState({}); // { [weekStart]: record }
   const [shoplineMonthsData, setShoplineMonthsData] = useState({}); // { [monthKey]: record }
   const [shoplineLoading, setShoplineLoading] = useState(false);
@@ -3162,7 +3088,7 @@ function MetaAdsLedger() {
       // 所有設定都載入完成後,才決定要不要自動同步——避免品牌清單還沒載完就搶跑,
       // 這裡直接用剛讀到的資料(而不是 brands 這個 state),因為 setState 不會馬上生效。
       // 不再要求一定要有 loadedToken 才觸發——自動同步已經改用不需要貼權杖的 Worker 代理。
-      if (autoSyncOn && !autoSyncRanRef.current) {
+      if (!PUBLIC_READ_ONLY && autoSyncOn && !autoSyncRanRef.current) {
         autoSyncRanRef.current = true;
         // 改叫 refreshAllData(false):廣告成效(官網+一頁)、Shopline 訂單、每日收益表(Google 試算表)三個一起自動刷新,
         // 跟廣告成效原本的自動同步共用同一個「今天有沒有跑過」的判斷,不會因為改成一起跑而變成每天重複觸發好幾次。
@@ -3193,7 +3119,6 @@ function MetaAdsLedger() {
     if (viewMode === "coupon" && activeBrandId !== OFFICIAL_SITE_BRAND_ID) setViewMode("month");
   }, [activeBrandId, viewMode]);
   useEffect(() => {
-    if (HAS_SHARED_STORAGE) return; // Claude Artifact 已經有共用儲存,不需要再測 Cloudflare API
     probeCloud(true).then((status) => {
       setCloudStatus(status);
       if (status === "connected") {
@@ -5375,32 +5300,6 @@ function MetaAdsLedger() {
     return (couponQueryData.discountSummary || []).find((d) => String(d.code).toUpperCase() === target) || null;
   }, [couponFocusCode, couponQueryData]);
 
-  // ---------- 密碼閘:還沒驗證通過就不顯示任何報表內容 ----------
-  if (isUnlocked === null) {
-    return null; // 還在檢查瀏覽器有沒有記住解鎖狀態,先不顯示任何畫面,避免閃一下
-  }
-  if (!isUnlocked) {
-    return (
-      <div className="mal-gate-shell">
-        <form className="mal-gate-card" onSubmit={handleUnlock}>
-          <div className="mal-gate-icon">🔒</div>
-          <h1 className="mal-gate-title">H&J業績總表</h1>
-          <p className="mal-gate-sub">請輸入密碼才能查看報表內容</p>
-          <input
-            type="password"
-            autoFocus
-            value={gatePasswordInput}
-            onChange={(e) => setGatePasswordInput(e.target.value)}
-            placeholder="請輸入密碼"
-            className="mal-gate-input"
-          />
-          {gateError && <p className="mal-gate-error">{gateError}</p>}
-          <button type="submit" className="mal-btn mal-btn-primary mal-gate-submit">進入</button>
-        </form>
-      </div>
-    );
-  }
-
   return (
     <div className="mal-shell">
       <div className="mal-header">
@@ -5418,30 +5317,15 @@ function MetaAdsLedger() {
             <p className="mal-eyebrow">H&J Performance Archive</p>
             <h1 className="mal-title">H&J業績總表</h1>
             <p className="mal-subtitle">
-              廣告費 · 轉單 · CPA · ROAS,每月自動累積(廣告成效資料存在本機瀏覽器)
-              {cloudStatus === "connected" && `・每日收益表已連上共用資料庫${credentialName ? `(身份:${credentialName})` : ""}`}
-              {cloudStatus === "unauthorized" && "・每日收益表:密碼不對,請點右上角重新輸入"}
-              {(cloudStatus === "unavailable" || cloudStatus === "unknown") && "・每日收益表尚未連線"}
+              廣告費 · 轉單 · CPA · ROAS · Shopline，直接讀取共用資料
+              {cloudStatus === "connected" && "・共用資料已連線"}
+              {(cloudStatus === "unavailable" || cloudStatus === "unknown") && "・共用資料連線中"}
             </p>
           </div>
         </div>
         <div className="mal-header-actions">
-          <div className="mal-header-actions-full">
-            <button
-              className="mal-btn"
-              style={{ background: "linear-gradient(135deg, #3C3733, #6E8577)", color: "#fff", borderColor: "#3C3733", fontWeight: 600 }}
-              disabled={!!refreshAllStatus}
-              onClick={refreshAllData}
-            >
-              {refreshAllStatus ? "刷新中…" : "🔄 一鍵更新全部(廣告+Shopline+每日營收)"}
-            </button>
-          </div>
           <div className="mal-header-actions-secondary">
-            {!HAS_SHARED_STORAGE && (
-              <button className="mal-btn" onClick={() => { setTeamKeyInput(getTeamKey()); setShowTeamKeyModal(true); }}>
-                {cloudStatus === "connected" ? <><span className="mal-btn-emoji">☁️</span> {credentialName || "已連線"}</> : <><span className="mal-btn-emoji">🔑</span> 每日收益表密碼</>}
-              </button>
-            )}
+            <span style={{ fontSize: 11.5, color: "var(--ink-soft)", alignSelf: "center" }}>☁️ 唯讀 · 自動讀取 H&J 共用資料</span>
             <input
               id="hj-logo-upload"
               type="file"
@@ -5469,19 +5353,11 @@ function MetaAdsLedger() {
                 ↺ 恢復預設
               </button>
             )}
-            {activeBrandId === ONEPAGE_BRAND_ID && (
-              <span style={{ fontSize: 11.5, color: "var(--ink-soft)", alignSelf: "center" }}>每日收益表已自動同步,不需要手動匯入</span>
-            )}
             {logoUploadNotice && <span style={{ fontSize: 11.5, color: "var(--ink-soft)", alignSelf: "center" }}>{logoUploadNotice}</span>}
             {(sortedKeys.length > 0 || sortedWeekKeys.length > 0) && (
               <button className="mal-btn mal-print-btn" onClick={handlePrintClick}><span className="mal-btn-emoji">🖨</span> 列印 / 匯出 PDF</button>
             )}
           </div>
-          {sortedKeys.length > 0 && (
-            <div className="mal-header-actions-reset-row">
-              <button className="mal-btn mal-btn-danger" onClick={() => setConfirmReset(true)}><span className="mal-btn-emoji">🗑</span> 重置</button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -5518,18 +5394,12 @@ function MetaAdsLedger() {
             <strong className={`mal-threshold-value${cpaThresholds[activeBrandId] != null ? " mal-threshold-value-set" : ""}`}>
               {cpaThresholds[activeBrandId] != null ? `${cpaThresholds[activeBrandId]}` : "尚未設定"}
             </strong>
-            <button className="mal-btn mal-threshold-btn" onClick={() => editCpaThreshold(activeBrandId)}>
-              {cpaThresholds[activeBrandId] != null ? "修改" : "設定"}
-            </button>
           </div>
           <div className="mal-threshold-row">
             <span className="mal-threshold-label">CPC 目標</span>
             <strong className={`mal-threshold-value${cpcThresholds[activeBrandId] != null ? " mal-threshold-value-set" : ""}`}>
               {cpcThresholds[activeBrandId] != null ? `${cpcThresholds[activeBrandId]}` : "尚未設定"}
             </strong>
-            <button className="mal-btn mal-threshold-btn" onClick={() => editCpcThreshold(activeBrandId)}>
-              {cpcThresholds[activeBrandId] != null ? "修改" : "設定"}
-            </button>
           </div>
         </div>
       )}
@@ -5556,11 +5426,7 @@ function MetaAdsLedger() {
         <button className={`mal-viewmode-btn ${viewMode === "sponsor" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("sponsor")}>
           🎤 業配分析
         </button>
-        {activeBrandId === OFFICIAL_SITE_BRAND_ID && (
-          <button className={`mal-viewmode-btn ${viewMode === "coupon" ? "mal-viewmode-btn-active" : ""}`} onClick={() => setViewMode("coupon")}>
-            🎟 折價券查詢
-          </button>
-        )}
+
       </div>
 
       {viewMode === "adjust" && (
@@ -5594,9 +5460,7 @@ function MetaAdsLedger() {
                 <div style={{ fontSize: 30 }}>📊</div>
                 <h3 style={{ fontFamily: "'Noto Serif TC', serif", margin: "12px 0 0" }}>還沒有月報資料</h3>
                 <p>先更新本月 Meta 廣告資料，就能開始比較同一素材在不同策略下的差異。</p>
-                <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "month"} onClick={updateThisMonth}>
-                  {metaUpdateLoading === "month" ? "更新中…" : "🔄 更新本月資料"}
-                </button>
+                <p style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>目前為唯讀模式，資料會由共用報表自動同步。</p>
               </div>
             ) : (
               <>
@@ -5668,9 +5532,7 @@ function MetaAdsLedger() {
           <div style={{ fontSize: 30 }}>📖</div>
           <h3 style={{ fontFamily: "'Noto Serif TC', serif", margin: "12px 0 0" }}>帳本還是空的</h3>
           <p>按下方按鈕,系統會自動抓取廣告費、成果/購買次數、轉換價值等資料,並整理成逐廣告明細。</p>
-          <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "month"} onClick={updateThisMonth}>
-            {metaUpdateLoading === "month" ? "更新中…" : `🔄 更新${focusMonth ? monthLabel(focusMonth) : "本月"}資料`}
-          </button>
+          <p style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>目前為唯讀模式，資料會由共用報表自動同步。</p>
         </div>
       ) : (
         <>
@@ -5774,10 +5636,10 @@ function MetaAdsLedger() {
               monthlyBudget={monthlyBudgets[activeBrandId]}
               brands={brands}
               activeBrandId={activeBrandId}
-              onEditRoasTarget={editRoasTarget}
-              onEditMonthlyBudget={editMonthlyBudget}
+              onEditRoasTarget={null}
+              onEditMonthlyBudget={null}
               productNames={productNames[activeBrandId] || {}}
-              onEditProductName={editProductName}
+              onEditProductName={null}
               minSpend={MIN_AD_SPEND}
               ledgerAgg={activeBrandId === OFFICIAL_SITE_BRAND_ID ? null : aggregateLedgerRange(ledgerByMonth, monthDateRange(focusMonth).since, monthDateRange(focusMonth).until)}
               adRatioThreshold={adRatioThresholds[activeBrandId]}
@@ -5918,9 +5780,7 @@ function MetaAdsLedger() {
                 ) : (
                   <div className="mal-empty">
                     <p>這個月份還沒有抓取 Shopline 訂單資料,沒辦法比對官網實際業績跟 Meta 回報的落差。</p>
-                    <button className="mal-btn mal-btn-primary" disabled={shoplineLoading} onClick={() => fetchShoplineForMonth(focusMonth)}>
-                      {shoplineLoading ? "抓取中…" : "☁️ 抓取這個月的 Shopline 資料"}
-                    </button>
+                    <p style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>尚未同步這個月的 Shopline 資料。</p>
                   </div>
                 )}
               </>
@@ -5954,7 +5814,7 @@ function MetaAdsLedger() {
                       <td>{d.revenue > 0 ? fmtMoney(d.revenue, d.currency) : "—"}</td>
                       <td>{d.cpa !== null ? fmtMoney(d.cpa, d.currency) : "—"}</td>
                       <td>{d.roas !== null ? `${d.roas.toFixed(2)}x` : "—"}</td>
-                      <td><button className="mal-icon-btn" onClick={() => setConfirmDelete(mk)} title="刪除此月資料">🗑</button></td>
+                      <td></td>
                     </tr>
                   );
                 })}
@@ -5970,9 +5830,7 @@ function MetaAdsLedger() {
             <div style={{ fontSize: 30 }}>🗓</div>
             <h3 style={{ fontFamily: "'Noto Serif TC', serif", margin: "12px 0 0" }}>還沒有任何週報表</h3>
             <p>按下方按鈕,抓一次之後這裡就會出現上週的廣告成效。</p>
-            <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "week"} onClick={updateLastWeek}>
-              {metaUpdateLoading === "week" ? "更新中…" : "🔄 更新上週資料"}
-            </button>
+            <p style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>目前為唯讀模式，資料會由共用報表自動同步。</p>
           </div>
         ) : (
           <>
@@ -6084,9 +5942,9 @@ function MetaAdsLedger() {
                   roasTarget={roasTargets[activeBrandId]}
                   brands={brands}
                   activeBrandId={activeBrandId}
-                  onEditRoasTarget={editRoasTarget}
+                  onEditRoasTarget={null}
                   productNames={productNames[activeBrandId] || {}}
-                  onEditProductName={editProductName}
+                  onEditProductName={null}
                   minSpend={MIN_AD_SPEND}
                   ledgerAgg={activeBrandId === OFFICIAL_SITE_BRAND_ID ? null : aggregateLedgerRange(ledgerByMonth, focusWeek, addDaysISO(focusWeek, 6))}
                   adRatioThreshold={adRatioThresholds[activeBrandId]}
@@ -6168,9 +6026,7 @@ function MetaAdsLedger() {
                     ) : (
                       <div className="mal-empty">
                         <p>這一週還沒有抓取 Shopline 訂單資料,沒辦法比對官網實際業績跟 Meta 回報的落差。</p>
-                        <button className="mal-btn mal-btn-primary" disabled={shoplineLoading} onClick={() => fetchShoplineForWeek(focusWeek)}>
-                          {shoplineLoading ? "抓取中…" : "☁️ 抓取這一週的 Shopline 資料"}
-                        </button>
+                        <p style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>尚未同步這一週的 Shopline 資料。</p>
                       </div>
                     )}
                   </>
@@ -6188,18 +6044,7 @@ function MetaAdsLedger() {
                   </>
                 )}
 
-                <div className="mal-modal-actions" style={{ justifyContent: "flex-start", marginTop: 4 }}>
-                  <button
-                    className="mal-icon-btn"
-                    onClick={async () => {
-                      await storage.delete(weekKeyFor(activeBrandId, focusWeek));
-                      await loadAllWeeks(activeBrandId);
-                    }}
-                    title="刪除這週資料"
-                  >
-                    🗑 刪除這週資料
-                  </button>
-                </div>
+                
               </>
             )}
           </>
@@ -6212,9 +6057,7 @@ function MetaAdsLedger() {
             <div style={{ fontSize: 30 }}>🎤</div>
             <h3 style={{ fontFamily: "'Noto Serif TC', serif", margin: "12px 0 0" }}>還沒有任何月報表資料</h3>
             <p>先按右上角「更新本月資料」,才能進行業配廣告的長線分析。</p>
-            <button className="mal-btn mal-btn-primary" disabled={metaUpdateLoading === "month"} onClick={updateThisMonth}>
-              {metaUpdateLoading === "month" ? "更新中…" : `🔄 更新${focusMonth ? monthLabel(focusMonth) : "本月"}資料`}
-            </button>
+            <p style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>目前為唯讀模式，資料會由共用報表自動同步。</p>
           </div>
         ) : sponsorMonthsWithData.length === 0 ? (
           <div className="mal-empty">
