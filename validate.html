@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head><meta charset="utf-8"><title>HJ Validate</title></head>
+<body>
+<pre id="out">checking...</pre>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+(async()=>{
+  const out=document.getElementById('out');
+  try{
+    const html=await fetch('./index.html?validate='+Date.now(),{cache:'no-store'}).then(r=>r.text());
+    const m=html.match(/<script[^>]*type=["']text\/babel["'][^>]*>([\s\S]*?)<\/script>/i);
+    if(!m) throw new Error('text/babel script not found');
+    const src=m[1];
+    Babel.transform(src,{presets:['env','react'],filename:'index-inline.jsx'});
+    out.textContent='BABEL_OK\nchars='+src.length;
+  }catch(e){
+    out.textContent='BABEL_ERROR\n'+(e&&e.stack?e.stack:String(e));
+  }
+})();
+</script>
+</body>
+</html>
