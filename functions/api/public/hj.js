@@ -1,3 +1,17 @@
+async function cachedPublicResponse(request, build, waitUntil) {
+  const cache = caches.default;
+  const cacheKey = new Request(request.url, { method: "GET" });
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+  const response = await build();
+  if (response && response.ok) {
+    const put = cache.put(cacheKey, response.clone()).catch(() => {});
+    if (typeof waitUntil === "function") waitUntil(put);
+    else await put;
+  }
+  return response;
+}
+
 const BRANDS = [
   { name: "H&J官網業績", id: "436280797192761" },
   { name: "H&J 一頁業績", id: "2157995930925784" },
@@ -169,7 +183,8 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
 }
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet({ request, env, waitUntil }) {
+  return cachedPublicResponse(request, async () => {
   try {
     const url = new URL(request.url);
     const op = url.searchParams.get("op") || "health";
@@ -204,4 +219,5 @@ export async function onRequestGet({ request, env }) {
       message: error && error.message ? error.message : String(error),
     }, 500);
   }
+  }, waitUntil);
 }
