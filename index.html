@@ -1146,17 +1146,7 @@ const LEDGER_PRODUCT_BLOCK_WIDTH = 8;
 const LEDGER_PRODUCT_BLOCK_START_COL = 19; // 從 T 欄(0-indexed 19)開始才是「產品代號」區塊,前面 A-R 欄是總表與 FB 總花費
 const LEDGER_MONTH_SHEET_RE = /^(\d{1,2})\s*月/;
 
-function excelDateToISO(v) {
-  if (v instanceof Date) {
-    return `${v.getUTCFullYear()}-${String(v.getUTCMonth() + 1).padStart(2, "0")}-${String(v.getUTCDate()).padStart(2, "0")}`;
-  }
-  return null;
-}
 
-function toNum(v) {
-  const n = typeof v === "number" ? v : parseFloat(v);
-  return isFinite(n) ? n : 0;
-}
 
 // 解析單一分頁(一個月份)成 { monthKey, days: [...], productCodes: [...] }。
 // year 由匯入時使用者指定(表單裡沒有年份資訊,只有分頁月份)。
