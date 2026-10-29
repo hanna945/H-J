@@ -4015,32 +4015,65 @@ function MetaAdsLedger() {
   }, [apiToken, rememberToken]);
 
   // ---------- Shopline 對照:載入共用資料 ----------
+  // SHOPLINE 訂單陣列很大，不再開頁時把所有歷史月份/週次整包下載。
+  // 先讀 key 索引，只抓最新一筆；使用者切換到歷史月份/週次時再 lazy-load。
+  async function loadShoplineRecord(prefix, periodKey, setter) {
+    if (!periodKey) return null;
+    const res = await storage.get(prefix + periodKey).catch(() => null);
+    if (!res || !res.value) return null;
+    const record = JSON.parse(res.value);
+    setter((prev) => ({ ...prev, [periodKey]: record }));
+    return record;
+  }
+
   async function loadShoplineSharedData() {
     try {
-      const weekList = await storage.list(SHOPLINE_WEEK_PREFIX).catch(() => ({ keys: [] }));
-      const weekEntries = {};
-      for (const k of weekList.keys || []) {
-        const res = await storage.get(k).catch(() => null);
-        if (res && res.value) weekEntries[k.slice(SHOPLINE_WEEK_PREFIX.length)] = JSON.parse(res.value);
-      }
-      setShoplineWeeksData(weekEntries);
+      const [weekList, monthList] = await Promise.all([
+        storage.list(SHOPLINE_WEEK_PREFIX).catch(() => ({ keys: [] })),
+        storage.list(SHOPLINE_MONTH_PREFIX).catch(() => ({ keys: [] })),
+      ]);
 
-      const monthList = await storage.list(SHOPLINE_MONTH_PREFIX).catch(() => ({ keys: [] }));
-      const monthEntries = {};
-      for (const k of monthList.keys || []) {
-        const res = await storage.get(k).catch(() => null);
-        if (res && res.value) monthEntries[k.slice(SHOPLINE_MONTH_PREFIX.length)] = JSON.parse(res.value);
-      }
-      setShoplineMonthsData(monthEntries);
-      return { weeks: weekEntries, months: monthEntries };
+      const weekKeys = (weekList.keys || [])
+        .map((k) => k.slice(SHOPLINE_WEEK_PREFIX.length))
+        .filter(Boolean)
+        .sort();
+      const monthKeys = (monthList.keys || [])
+        .map((k) => k.slice(SHOPLINE_MONTH_PREFIX.length))
+        .filter(Boolean)
+        .sort();
+
+      const targetWeek = focusWeek || weekKeys[weekKeys.length - 1] || null;
+      const targetMonth = focusMonth || monthKeys[monthKeys.length - 1] || null;
+
+      const [weekRecord, monthRecord] = await Promise.all([
+        loadShoplineRecord(SHOPLINE_WEEK_PREFIX, targetWeek, setShoplineWeeksData),
+        loadShoplineRecord(SHOPLINE_MONTH_PREFIX, targetMonth, setShoplineMonthsData),
+      ]);
+
+      return {
+        weeks: weekRecord && targetWeek ? { [targetWeek]: weekRecord } : {},
+        months: monthRecord && targetMonth ? { [targetMonth]: monthRecord } : {},
+        availableWeekCount: weekKeys.length,
+        availableMonthCount: monthKeys.length,
+      };
     } catch {
-      return { weeks: {}, months: {} };
+      return { weeks: {}, months: {}, availableWeekCount: 0, availableMonthCount: 0 };
     }
   }
 
   useEffect(() => {
     loadShoplineSharedData();
   }, []);
+
+  useEffect(() => {
+    if (!focusMonth || shoplineMonthsData[focusMonth]) return;
+    loadShoplineRecord(SHOPLINE_MONTH_PREFIX, focusMonth, setShoplineMonthsData).catch(() => {});
+  }, [focusMonth]);
+
+  useEffect(() => {
+    if (!focusWeek || shoplineWeeksData[focusWeek]) return;
+    loadShoplineRecord(SHOPLINE_WEEK_PREFIX, focusWeek, setShoplineWeeksData).catch(() => {});
+  }, [focusWeek]);
 
   // H&J 專屬：公開頁仍可手動刷新 Shopline，但真正的 Worker URL / 密鑰都留在 Pages Function 後端。
   // 按一次只更新本月與本週最新 SHOPLINE 資料，再重新讀回共用 KV；歷史資料保留不動。
@@ -4074,8 +4107,8 @@ function MetaAdsLedger() {
       const refreshed = await loadShoplineSharedData();
       const updatedMonths = (data.updated || []).filter((x) => x.type === "month").length;
       const updatedWeeks = (data.updated || []).filter((x) => x.type === "week").length;
-      const monthCount = Object.keys(refreshed.months || {}).length;
-      const weekCount = Object.keys(refreshed.weeks || {}).length;
+      const monthCount = refreshed.availableMonthCount || Object.keys(refreshed.months || {}).length;
+      const weekCount = refreshed.availableWeekCount || Object.keys(refreshed.weeks || {}).length;
       const suffix = data.failed && data.failed.length
         ? `，另有 ${data.failed.length} 個區間更新失敗`
         : "";
