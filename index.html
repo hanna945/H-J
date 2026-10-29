@@ -3851,9 +3851,7 @@ function MetaAdsLedger() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
     const [focusMonth, setFocusMonth] = useState(null);
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const [showPrintSelector, setShowPrintSelector] = useState(false);
+      const [showPrintSelector, setShowPrintSelector] = useState(false);
   const [printSections, setPrintSections] = useState([]);
   const [selectedPrintSections, setSelectedPrintSections] = useState([]);
   const [showAllAds, setShowAllAds] = useState(false);
@@ -4449,17 +4447,7 @@ function MetaAdsLedger() {
     }
   }
 
-  async function deleteMonth(mk) {
-    try {
-      await storage.delete(monthKeyFor(activeBrandId, mk));
-      const updated = { ...months }; delete updated[mk];
-      setMonths(updated);
-      const sorted = Object.keys(updated).sort();
-      if (focusMonth === mk) setFocusMonth(sorted.length ? sorted[sorted.length - 1] : null);
-    } catch { setError("刪除失敗,請再試一次。"); }
-    setConfirmDelete(null);
-  }
-
+  
   function getCurrentPrintableSections() {
     return Array.from(document.querySelectorAll(".mal-major-section-title"))
       .map((title, index) => {
@@ -4530,14 +4518,7 @@ function MetaAdsLedger() {
     })();
   }
 
-  async function resetAll() {
-    try {
-      for (const mk of Object.keys(months)) await storage.delete(monthKeyFor(activeBrandId, mk));
-      setMonths({}); setFocusMonth(null);
-    } catch { setError("重置失敗,請再試一次。"); }
-    setConfirmReset(false);
-  }
-
+  
   // 每個品牌各自的「CPA 過高」標準是各品牌獨立設定、互不影響,存起來之後下次打開網頁還會記得,
   // 也隨時可以重新設定或修改。輸入空白表示清除這個品牌的標準(改回「尚未設定」,不會顯示過高警示)。
   // 已經拿掉「預設帳本」,所以只要抓到資料,就一定要掛在一個看得到的品牌底下——
@@ -6564,7 +6545,7 @@ function MetaAdsLedger() {
           <StaticSectionTitle className="mal-section-title">每月明細</StaticSectionTitle>
           <div className="mal-scroll-wrap" style={{ overflowX: "auto" }}>
             <table className="mal-table">
-              <thead><tr><th>月份</th><th>廣告費</th><th>轉單</th><th>轉單金額</th><th>CPA</th><th>ROAS</th><th></th></tr></thead>
+              <thead><tr><th>月份</th><th>廣告費</th><th>轉單</th><th>轉單金額</th><th>CPA</th><th>ROAS</th></tr></thead>
               <tbody>
                 {sortedKeys.slice().reverse().map((mk) => {
                   const d = enriched[mk];
@@ -6576,7 +6557,6 @@ function MetaAdsLedger() {
                       <td>{d.revenue > 0 ? fmtMoney(d.revenue, d.currency) : "—"}</td>
                       <td>{d.cpa !== null ? fmtMoney(d.cpa, d.currency) : "—"}</td>
                       <td>{d.roas !== null ? `${d.roas.toFixed(2)}x` : "—"}</td>
-                      <td><button className="mal-icon-btn" onClick={() => setConfirmDelete(mk)} title="刪除此月資料">🗑</button></td>
                     </tr>
                   );
                 })}
@@ -7333,31 +7313,9 @@ function MetaAdsLedger() {
         </div>
       )}
 
-      {confirmReset && (
-        <div className="mal-modal-overlay">
-          <div className="mal-modal mal-modal-small">
-            <h3>重置「{activeBrandId ? (brands.find((b) => b.id === activeBrandId) || {}).name || activeBrandId : "此帳本"}」?</h3>
-            <p className="mal-modal-sub">這會刪除目前這個品牌底下所有已儲存的月份資料,無法復原。其他品牌的資料不受影響。</p>
-            <div className="mal-modal-actions">
-              <button className="mal-btn" onClick={() => setConfirmReset(false)}>取消</button>
-              <button className="mal-btn mal-btn-danger" onClick={resetAll}>確認重置</button>
-            </div>
-          </div>
-        </div>
-      )}
+      
 
-      {confirmDelete && (
-        <div className="mal-modal-overlay">
-          <div className="mal-modal mal-modal-small">
-            <h3>刪除 {monthLabel(confirmDelete)} 的資料?</h3>
-            <p className="mal-modal-sub">刪除後可重新上傳該月報表補回。</p>
-            <div className="mal-modal-actions">
-              <button className="mal-btn" onClick={() => setConfirmDelete(null)}>取消</button>
-              <button className="mal-btn mal-btn-danger" onClick={() => deleteMonth(confirmDelete)}>確認刪除</button>
-            </div>
-          </div>
-        </div>
-      )}
+      
     </div>
   );
 }
