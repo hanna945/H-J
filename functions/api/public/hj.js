@@ -16,12 +16,10 @@ const EXACT_KEYS = new Set([
 
 const BRAND_PREFIXES = [
   "metaads-month:",
-  "metaads-week:",
   "metaads-ledger:",
-  "adperf-ai-week:",
   "adperf-ai-month:",
 ];
-const SHOPLINE_PREFIXES = ["shopline-week:", "shopline-month:"];
+const SHOPLINE_PREFIXES = ["shopline-month:"];
 const LIST_PREFIXES = new Set([...BRAND_PREFIXES, ...SHOPLINE_PREFIXES]);
 
 function corsHeaders() {
@@ -144,7 +142,7 @@ async function publicValueForKey(env, key) {
   const raw = await readRawJson(env, key);
   if (raw == null) return null;
   if (prefix === "metaads-ledger:") return sanitizeLedger(raw, key);
-  if (prefix === "shopline-week:" || prefix === "shopline-month:") return sanitizeShopline(raw);
+  if (prefix === "shopline-month:") return sanitizeShopline(raw);
   return raw;
 }
 
