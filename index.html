@@ -6103,6 +6103,19 @@ function MetaAdsLedger() {
           {focusData && (
             <>
               <SyncedAtNote iso={focusData.syncedAt} source={focusData.source} />
+              <EvidenceExecutiveSummary
+                currentRecord={focusData}
+                previousRecord={prevData}
+                roasTarget={roasTargets[activeBrandId]}
+                cpaTarget={cpaThresholds[activeBrandId]}
+                monthlyBudget={monthlyBudgets[activeBrandId]}
+                periodType="month"
+                periodLabel={monthLabel(focusMonth)}
+                brandName={((brands.find((b) => b.id === activeBrandId) || {}).name || "H&J")}
+                syncedAt={focusData.syncedAt}
+                sourceLabel={activeBrandId === ONEPAGE_BRAND_ID ? "Meta Ads + H&J 帳本 + Shopline" : "Meta Ads + H&J 帳本"}
+              />
+              <EvidenceSectionNavigator refreshKey={activeBrandId + "::month::" + focusMonth} />
               <OverallOpsSummary
                 key={`ops::${activeBrandId}::${focusMonth}`}
                 ads={focusData.ads}
@@ -6403,6 +6416,18 @@ function MetaAdsLedger() {
             {focusWeekData && (
               <>
                 <SyncedAtNote iso={focusWeekData.syncedAt} source={focusWeekData.source} />
+                <EvidenceExecutiveSummary
+                  currentRecord={focusWeekData}
+                  previousRecord={prevWeekData}
+                  roasTarget={roasTargets[activeBrandId]}
+                  cpaTarget={cpaThresholds[activeBrandId]}
+                  periodType="week"
+                  periodLabel={weekLabel(focusWeek)}
+                  brandName={((brands.find((b) => b.id === activeBrandId) || {}).name || "H&J")}
+                  syncedAt={focusWeekData.syncedAt}
+                  sourceLabel={activeBrandId === ONEPAGE_BRAND_ID ? "Meta Ads + H&J 帳本 + Shopline" : "Meta Ads + H&J 帳本"}
+                />
+                <EvidenceSectionNavigator refreshKey={activeBrandId + "::week::" + focusWeek} />
                 <OverallOpsSummary
                   key={`ops::${activeBrandId}::${focusWeek}`}
                   ads={focusWeekData.ads}
