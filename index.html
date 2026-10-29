@@ -1122,9 +1122,6 @@ function monthKeyFor(brandId, mk) {
   return STORAGE_PREFIX + (brandId ? brandId + "::" : "") + mk;
 }
 const WEEK_STORAGE_PREFIX = "metaads-week:";
-function weekKeyFor(brandId, weekStart) {
-  return WEEK_STORAGE_PREFIX + (brandId ? brandId + "::" : "") + weekStart;
-}
 // ---------- 後台「一頁式正確業績」(每日收益表匯入) ----------
 // 每個品牌、每個月存一筆,key 格式跟月報表/週報表一致,方便重複匯入時直接覆蓋更新。
 const LEDGER_STORAGE_PREFIX = "metaads-ledger:";
@@ -4069,27 +4066,22 @@ function MetaAdsLedger() {
   // 確保任兩次呼叫之間至少間隔 MIN_API_GAP_MS——即使使用者手動連續按「抓上週」再按「抓月報表」也一樣受限,
   // 不再只靠批次迴圈裡的 4 秒 delay(那個只保護「同一輪批次抓取」,不會保護「先抓周報表、再手動切去抓月報表」這種跨動作的情境)。
   const lastApiCallRef = useRef(0);
-  const [apiMode, setApiMode] = useState("full"); // "full" | "multi" | "week" | "recentWeeks"
-  const [recentWeeksCount, setRecentWeeksCount] = useState(4);
-  const [recentMonthsCount, setRecentMonthsCount] = useState(3); // 自動更新前3個月用
+  // "full" | "multi" | "week" | "recentWeeks"
+    // 自動更新前3個月用
   const [apiToken, setApiToken] = useState("");
   // 這個工具只服務單一品牌,廣告帳號 ID 直接鎖定,不需要使用者輸入或從瀏覽器記錄裡讀取。
-  const [apiAccountId, setApiAccountId] = useState(HARDCODED_BRANDS[0].id);
-  const [brands, setBrands] = useState([]);
+    const [brands, setBrands] = useState([]);
   const [activeBrandId, setActiveBrandId] = useState("");
   const [cpaThresholds, setCpaThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的「CPA 過高」標準
   const [cpcThresholds, setCpcThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的 CPC 目標
   const [adRatioThresholds, setAdRatioThresholds] = useState({}); // { [brandId]: number } 每個品牌各自的「廣告費佔比過高」標準(百分比數字,例如 30 代表 30%)
   const [roasTargets, setRoasTargets] = useState({}); // { [brandId]: number } 每個品牌各自的「投放成效報告」ROAS 目標倍數,預設 3
   const [monthlyBudgets, setMonthlyBudgets] = useState({}); // { [brandId]: number } 每個品牌月廣告預算上限
-  const [adjustmentPeriod, setAdjustmentPeriod] = useState("month"); // 廣告怎麼調頁面使用月報或週報資料
+  // 廣告怎麼調頁面使用月報或週報資料
   const [productNames, setProductNames] = useState({}); // { [brandId]: { [code]: name } } 每個品牌、每個代號各自的中文名稱,顯示成「代號(名稱)」——
   // 沒辦法從行銷活動名稱自動抓出乾淨的產品名稱(命名不夠固定),所以讓使用者自己設定,類似 roasTargets 那樣。
-  const [selectedBatchBrandIds, setSelectedBatchBrandIds] = useState([]);
-  const [batchProgress, setBatchProgress] = useState(null);
-  const [weekInfo, setWeekInfo] = useState(getLastWeekRange());
-  const [weekLoading, setWeekLoading] = useState(false);
-  const [viewMode, setViewMode] = useState("month");
+      const [weekInfo, setWeekInfo] = useState(getLastWeekRange());
+    const [viewMode, setViewMode] = useState("month");
   const [weeksData, setWeeksData] = useState({});
   const [focusWeek, setFocusWeek] = useState(null);
   // 診斷用:error boundary 在這個元件外層,沒辦法直接讀到這裡的 state,錯誤發生時只能靠這個
@@ -4104,13 +4096,11 @@ function MetaAdsLedger() {
       focusWeek,
     };
   }, [viewMode, activeBrandId, brands, focusWeek]);
-  const [batchGranularity, setBatchGranularity] = useState("month");
-  const [apiMonth, setApiMonth] = useState(() => {
+    const [apiMonth, setApiMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
-  const [apiLoading, setApiLoading] = useState(false);
-  const [apiError, setApiError] = useState(null);
+    const [apiError, setApiError] = useState(null);
   const [apiNotice, setApiNotice] = useState(null);
   const [rememberToken, setRememberToken] = useState(false);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
@@ -4145,8 +4135,7 @@ function MetaAdsLedger() {
   const DEFAULT_SHOPLINE_WORKER_URL = "";
   const SHOPLINE_PROXY_SECRET = "";
   const [shoplineWorkerUrl, setShoplineWorkerUrl] = useState("");
-  const [shoplineWorkerUrlInput, setShoplineWorkerUrlInput] = useState("");
-  const [shoplineWeeksData, setShoplineWeeksData] = useState({}); // { [weekStart]: record }
+    const [shoplineWeeksData, setShoplineWeeksData] = useState({}); // { [weekStart]: record }
   const [shoplineMonthsData, setShoplineMonthsData] = useState({}); // { [monthKey]: record }
   const [shoplineLoading, setShoplineLoading] = useState(false);
   const [shoplineError, setShoplineError] = useState(null);
@@ -4833,16 +4822,7 @@ function MetaAdsLedger() {
   // 也隨時可以重新設定或修改。輸入空白表示清除這個品牌的標準(改回「尚未設定」,不會顯示過高警示)。
   // 已經拿掉「預設帳本」,所以只要抓到資料,就一定要掛在一個看得到的品牌底下——
   // 如果這個帳號 ID 還沒存成常用品牌,就先用帳號 ID 當名稱自動建立一個(之後可以用「存為常用」改成正式名稱)。
-  async function ensureBrandRegistered(cleanId) {
-    const matched = brands.find((b) => b.id === cleanId);
-    if (matched) return matched.id;
-    const autoBrand = { name: cleanId, id: cleanId };
-    const updated = [...brands, autoBrand];
-    setBrands(updated);
-    await storage.set("meta-api-brands", JSON.stringify(updated)).catch(() => {});
-    return cleanId;
-  }
-
+  async 
   function editCpaThreshold(brandId) {
     const brandName = (brands.find((b) => b.id === brandId) || {}).name || brandId;
     const current = cpaThresholds[brandId];
@@ -5034,33 +5014,8 @@ function MetaAdsLedger() {
   // 而不是照瀏覽器所在的時區——不然帳號時區跟瀏覽器不同的話,算出來的週報表區間會跟 Meta 後台的「上週」對不起來,
   // 花費、轉單數、CPA、ROAS 就會整批兜不起來(尤其是靠近週一/週日交界的那幾筆資料)。
   // 抓不到時區也不讓它卡住整個流程,直接退回用瀏覽器時區。
-  async function fetchAccountUtcOffset(token, accountId) {
-    try {
-      const json = await fetchGraphApi(
-        `https://graph.facebook.com/v19.0/act_${accountId}?fields=timezone_offset_hours_utc&access_token=${encodeURIComponent(token)}`,
-        "讀取帳號時區"
-      );
-      return typeof json.timezone_offset_hours_utc === "number" ? json.timezone_offset_hours_utc : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function apiErrorHint(e) {
-    const msg = (e && e.message) || "";
-    if (e && (e.code === 1 || e.code === 2)) {
-      return (
-        "。這不是你的權杖或帳號 ID 設定錯誤——Meta 官方把這種錯誤歸類為「暫時性問題,建議直接重試」," +
-        "常見原因是短時間內對同一個廣告帳號打太多次 API(可能是你自己連續按了好幾次、同事剛好也在同時間抓同一個品牌、" +
-        "或自動同步跟手動抓取撞在一起),系統已經自動重試過,如果還是失敗,等 1~2 分鐘再試一次通常就會恢復。"
-      );
-    }
-    if (/too many calls/i.test(msg) || /80004/.test(msg) || /error_subcode 2446079/i.test(msg)) {
-      return "。這是 Meta 廣告帳號的呼叫頻率限制,不是設定錯誤——通常等 5~15 分鐘再試一次就會恢復,批次抓多個品牌時建議一次不要抓太多個。";
-    }
-    return "。請確認權杖沒過期、廣告帳號 ID 正確,且已授權 ads_read 權限。";
-  }
-
+  async 
+  
   // 大型帳號備援：Meta 官方建議大型 Insights 結果改用 async report run。
   // 平常仍先走原本同步 GET；只有同步查詢因資料量/處理時間失敗時才切 async，
   // 小帳號與既有流程完全不受影響。
