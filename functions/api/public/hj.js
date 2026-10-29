@@ -1,4 +1,13 @@
 async function cachedPublicResponse(request, build, waitUntil) {
+  const url = new URL(request.url);
+  const isShoplineValue =
+    url.searchParams.get("op") === "get" &&
+    String(url.searchParams.get("key") || "").startsWith("shopline-");
+
+  // SHOPLINE has an explicit manual refresh button. Never edge-cache the value request,
+  // otherwise the user could refresh successfully and still see the previous minute.
+  if (isShoplineValue) return build();
+
   const cache = caches.default;
   const cacheKey = new Request(request.url, { method: "GET" });
   const hit = await cache.match(cacheKey);
