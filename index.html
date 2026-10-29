@@ -1288,19 +1288,6 @@ function fmtStartDate(isoString) {
 // Meta 後台顯示的「上週」是照廣告帳號本身設定的時區去算的,不是瀏覽器所在的時區——
 // 如果沒有帶入帳號時區,就照舊用瀏覽器當下的時區(維持原本行為,通常也不會有問題)。
 // weeksAgo:要抓「往前第幾個完整週」,1 = 上週(預設,跟原本行為一樣),2 = 上上週,以此類推,用來支援「自動回溯抓取過去幾週」。
-function getLastWeekRange(utcOffsetHours, weeksAgo = 1) {
-  const offsetMs = typeof utcOffsetHours === "number" ? utcOffsetHours * 3600000 : -new Date().getTimezoneOffset() * 60000;
-  const ref = new Date(Date.now() + offsetMs);
-  const day = ref.getUTCDay(); // 0 = Sun ... 6 = Sat
-  const diffToThisMonday = day === 0 ? 6 : day - 1;
-  const thisMonday = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate() - diffToThisMonday));
-  const targetMonday = new Date(thisMonday);
-  targetMonday.setUTCDate(thisMonday.getUTCDate() - 7 * weeksAgo);
-  const targetSunday = new Date(targetMonday);
-  targetSunday.setUTCDate(targetMonday.getUTCDate() + 6);
-  const fmtUtc = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-  return { since: fmtUtc(targetMonday), until: fmtUtc(targetSunday), weekStart: fmtUtc(targetMonday) };
-}
 // 把一批 Shopline 訂單(record.orders)依下單日期分組,算出每天的訂單數、原價營收、折扣金額、實收營收。
 // 官網業績(H&J官網業績)的營收本來就是 Shopline 資料,不是 Google 試算表帳本,「每日報表」對這個品牌要看這份,不是空的帳本。
 // 2026-07-30再次修正:先後試過paymentStatus==='completed'(太窄,低估)、==='paid'(更窄,直接變成0),
