@@ -4026,7 +4026,7 @@ function MetaAdsLedger() {
     }
   }
 
-  function fetchShoplineForMonth(monthKey) {  function fetchShoplineForMonth(monthKey) {
+  function fetchShoplineForMonth(monthKey) {
     const { since, until } = monthRangeForShopline(monthKey);
     return fetchShoplineData(since, until, shoplineMonthKey(monthKey), (data) => {
       setShoplineMonthsData((prev) => ({ ...prev, [monthKey]: data }));
@@ -4635,7 +4635,7 @@ function MetaAdsLedger() {
     }
   }
 
-  function apiErrorHint(e) {  function apiErrorHint(e) {
+  function apiErrorHint(e) {
     const msg = (e && e.message) || "";
     if (e && (e.code === 1 || e.code === 2)) {
       return (
