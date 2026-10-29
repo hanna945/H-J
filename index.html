@@ -4077,7 +4077,7 @@ function MetaAdsLedger() {
   // 連線成功後背景觸發一次「登入後自動同步」(/api/sheets/auto):
   // 後端會自己判斷今天有沒有同步過、要不要真的去打 Google API,這裡不用先判斷,呼叫了也不會浪費額度。
   // 純背景動作,失敗就算了(例如還沒設定 Google 服務帳號金鑰),不影響畫面其他功能。
-  async 
+
   // 網頁剛打開的當下,不一定已經知道「目前是哪組登入身份」(密碼可能是這次才輸入的),身份解析出來後,
   // 帳本(metaads-ledger:)的讀寫權限判斷才會正確——但品牌「切換選單」本身不受這個影響。
   // 這個工具是 H&J 專屬的,即使登入的密碼身份(例如「品牌C部」)剛好也能看 Halo-Mavis、J.GAO 這些其他品牌的資料,
@@ -4213,7 +4213,6 @@ function MetaAdsLedger() {
     }
   }
 
-  async 
   async function fetchShoplineData(since, until, storageKey, applyFn) {
     if (!shoplineWorkerUrl) {
       setShoplineError("請先貼上並儲存你的 Cloudflare Worker 網址。");
@@ -4352,7 +4351,6 @@ function MetaAdsLedger() {
     }
   }
 
-  async 
   async function updateThisMonth() {
     if (!activeBrandId) {
       setMetaUpdateError("請先選擇一個品牌。");
@@ -4445,11 +4443,10 @@ function MetaAdsLedger() {
     }
   }
 
-  async 
   // 從 Google 試算表直接同步後台每日收益表(方式B:試算表保持完全私密,只分享給一個服務帳號),
   // 取代手動下載 xlsx 再上傳的步驟。伺服器端(/api/sheets/sync)會用服務帳號金鑰讀「1月」~「12月」
   // 這些分頁,轉成跟 xlsx 匯入完全同一套格式後直接存進帳本,前端這裡只需要打一次 API。
-  async 
+
   async function loadAll(brandId, isStale) {
     setLoading(true); setError(null);
     try {
@@ -4573,7 +4570,7 @@ function MetaAdsLedger() {
   // 也隨時可以重新設定或修改。輸入空白表示清除這個品牌的標準(改回「尚未設定」,不會顯示過高警示)。
   // 已經拿掉「預設帳本」,所以只要抓到資料,就一定要掛在一個看得到的品牌底下——
   // 如果這個帳號 ID 還沒存成常用品牌,就先用帳號 ID 當名稱自動建立一個(之後可以用「存為常用」改成正式名稱)。
-  async 
+
   function editCpaThreshold(brandId) {
     const brandName = (brands.find((b) => b.id === brandId) || {}).name || brandId;
     const current = cpaThresholds[brandId];
@@ -4695,9 +4692,7 @@ function MetaAdsLedger() {
     storage.set("meta-api-product-names", JSON.stringify(updated)).catch(() => {});
   }
 
-  async 
-  
-  async 
+
   async function fetchOneBrandMonth(token, accountId, month) {
     const [y, m] = month.split("-").map(Number);
     const since = `${month}-01`;
@@ -4765,8 +4760,7 @@ function MetaAdsLedger() {
   // 而不是照瀏覽器所在的時區——不然帳號時區跟瀏覽器不同的話,算出來的週報表區間會跟 Meta 後台的「上週」對不起來,
   // 花費、轉單數、CPA、ROAS 就會整批兜不起來(尤其是靠近週一/週日交界的那幾筆資料)。
   // 抓不到時區也不讓它卡住整個流程,直接退回用瀏覽器時區。
-  async 
-  
+
   // 大型帳號備援：Meta 官方建議大型 Insights 結果改用 async report run。
   // 平常仍先走原本同步 GET；只有同步查詢因資料量/處理時間失敗時才切 async，
   // 小帳號與既有流程完全不受影響。
@@ -5029,11 +5023,9 @@ function MetaAdsLedger() {
     };
   }
 
-  async 
   // 自動回溯抓取過去 N 週(週一~週日),依序一週一週抓、中間間隔 4 秒避免觸發 Meta 頻率限制。
   // 每一週都是獨立呼叫 fetchInsightsForRange,所以就算某一週失敗,也不會影響其他週的結果。
-  async 
-  
+
   // ---------- 投放中廣告成效分類(成效好 / 成效正常 / 成效不好 / 學習中) ----------
   const LEARNING_MIN_CONVERSIONS = 10; // 轉單數不足,還看不出真實成效,先歸類為「學習中」
   const PERF_LABELS = { good: "成效好", normal: "成效正常", poor: "成效不好", learning: "學習中" };
@@ -5843,14 +5835,13 @@ function MetaAdsLedger() {
     );
   }
 
-  async 
-  async 
+
   // 自動更新前3個月月報表:計算當月和前2個月,依次抓取每個月的資料
-  async 
+
   // 自動更新前4週週報表:快捷版本,直接抓過去4週
-  async 
-  async 
-  async 
+
+
+
   // 自動同步(網頁打開時背景觸發):改用跟「快速補3月」「快速補4週」同一套不需要貼權杖的 Worker 代理(callMetaWorker),
   // 不再依賴使用者手動貼的 apiToken——這是之前「自動同步」實際上一直沒有真的在跑的原因(舊寫法一定要有 token 才會動,
   // 但這個工具平常都是用免貼權杖的按鈕在抓資料,token 從來沒被設定過,自動同步一開始就直接返回)。
@@ -5859,19 +5850,19 @@ function MetaAdsLedger() {
   // 已經結束的月份/週,只在缺資料時才補,已經抓過的歷史資料不重複打 API,避免浪費 Meta 額度。
   // 一天只會真的觸發一次(用本機記錄的日期比對),不管同一天內重新整理頁面幾次都不會重複抓。
   const AUTO_SYNC_DATE_KEY = "meta-auto-sync-last-date";
-  async 
+
   // 手動觸發同步(例如面板裡的「立即同步」按鈕)
   
   // 直接呼叫 /api/sheets/sync(不是 /api/sheets/auto),指定明確的 accountId——
   // 跟登入自動觸發的每日同步用同一支後端 API,但這支沒有「一天一次」的限制,手動按永遠會真的去抓一次最新的。
   // sheetId 留空,後端會自動沿用這個品牌上次記住的試算表 ID,不用重新貼一次。
-  async 
+
   // 一鍵刷新全部資料來源:①官網+一頁廣告成效(Meta,近3個月+近4週)②Shopline 訂單(近3個月+近4週)
   // ③一頁業績的每日收益表(Google 試算表)。依序執行(不是同時打,避免太多請求一起打向 Meta/Shopline 觸發頻率限制),
   // 手動點的動作,不受背景自動同步「一天一次」的限制,想刷新隨時可以按。任一項目失敗不會擋住其他項目繼續執行。
   // force=true(手動按「刷新全部」):不管今天有沒有跑過,一定重新整理一次。
   // force=false(網頁打開時自動觸發):先檢查今天是否已經自動刷新過,跑過就直接跳過,避免同一天開好幾次網頁重複打一堆 API。
-  async 
+
   const sortedKeys = useMemo(() => Object.keys(months).sort(), [months]);
   const enriched = useMemo(() => { const out = {}; for (const mk of sortedKeys) out[mk] = deriveMetrics(months[mk]); return out; }, [months, sortedKeys]);
   const chartData = useMemo(() => sortedKeys.map((mk) => ({
