@@ -4415,6 +4415,7 @@ function MetaAdsLedger() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      clearPublicKvCache();
       await loadLedger(activeBrandId);
       const monthsLabel = (json.importedMonths || []).map((mk) => monthLabel(mk)).join("、");
       setLedgerImportNotice(
@@ -6239,6 +6240,7 @@ function MonthlyReportSection({ storageKey, ads, currencyCode, roasTarget, perio
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    clearPublicKvCache();
     if (accountId === activeBrandId) await loadLedger(activeBrandId);
     return json;
   }
