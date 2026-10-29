@@ -209,6 +209,11 @@ export async function onRequestGet({ request, env, waitUntil }) {
       for (const prefix of LIST_PREFIXES) {
         const keys = await listPublicKeys(env, prefix);
         keysByPrefix[prefix] = keys;
+
+        // SHOPLINE records contain full order arrays and can be very large. Keep their key
+        // index in the feed, but lazy-load the selected month/week through op=get.
+        if (SHOPLINE_PREFIXES.includes(prefix)) continue;
+
         const entries = await Promise.all(keys.map(async (key) => [key, await publicValueForKey(env, key)]));
         for (const [key, value] of entries) {
           if (value !== undefined && value !== null) values[key] = value;
