@@ -669,8 +669,12 @@ function teamKeyHeaders() { return {}; }
 
 const PUBLIC_KV_CACHE_TTL_MS = 30 * 1000;
 const publicKvCache = new Map();
+let publicFeedCache = null;
+let publicFeedPromise = null;
 function clearPublicKvCache() {
   publicKvCache.clear();
+  publicFeedCache = null;
+  publicFeedPromise = null;
 }
 async function publicKvRequest(params, force = false) {
   const qs = new URLSearchParams(params);
@@ -691,10 +695,24 @@ async function publicKvRequest(params, force = false) {
   return json;
 }
 
+async function loadPublicFeed(force = false) {
+  if (!force && publicFeedCache) return publicFeedCache;
+  if (!force && publicFeedPromise) return publicFeedPromise;
+  const task = publicKvRequest({ op: "feed" }, force).then((feed) => {
+    if (!feed || !feed.ok) throw new Error("H&J public feed invalid");
+    publicFeedCache = feed;
+    return feed;
+  }).finally(() => {
+    publicFeedPromise = null;
+  });
+  publicFeedPromise = task;
+  return task;
+}
+
 async function probeCloud(force = false) {
   if (!force && cloudStatusCache !== "unknown") return cloudStatusCache;
   try {
-    await publicKvRequest({ op: "health" }, force);
+    await loadPublicFeed(force);
     cloudStatusCache = "connected";
   } catch {
     cloudStatusCache = "unavailable";
@@ -712,6 +730,10 @@ function mergeCredentialBrands(cleanedSharedBrands) {
 
 const cloudStorage = {
   async get(key) {
+    const feed = await loadPublicFeed(false);
+    if (feed && feed.values && Object.prototype.hasOwnProperty.call(feed.values, key)) {
+      return { key, value: JSON.stringify(feed.values[key]) };
+    }
     try {
       return await publicKvRequest({ op: "get", key });
     } catch (e) {
@@ -726,6 +748,10 @@ const cloudStorage = {
     throw new Error("H&J 公開報表為唯讀模式");
   },
   async list(prefix) {
+    const feed = await loadPublicFeed(false);
+    if (feed && feed.keysByPrefix && Array.isArray(feed.keysByPrefix[prefix])) {
+      return { keys: feed.keysByPrefix[prefix] };
+    }
     return await publicKvRequest({ op: "list", prefix });
   },
 };
