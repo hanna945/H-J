@@ -1397,7 +1397,7 @@ function monthDateRange(monthKey) {
   const until = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
   return { since, until };
 }
-function fmtInt(n)function fmtInt(n) { return Math.round(n).toLocaleString("zh-TW"); }
+function fmtInt(n) { return Math.round(n).toLocaleString("zh-TW"); }
 function fmtMoney(n, currency) {
   try {
     return new Intl.NumberFormat("zh-TW", { style: "currency", currency: currency || "TWD", maximumFractionDigits: 0 }).format(n);
@@ -4137,7 +4137,7 @@ function MetaAdsLedger() {
     }
   }
 
-  async function updateThisMonth() {  async function updateThisMonth() {
+  async function updateThisMonth() {
     if (!activeBrandId) {
       setMetaUpdateError("請先選擇一個品牌。");
       return;
@@ -4171,7 +4171,7 @@ function MetaAdsLedger() {
     }
   }
 
-  async function loadLedger(brandId, isStale) {  async function loadLedger(brandId, isStale) {
+  async function loadLedger(brandId, isStale) {
     try {
       const listRes = await storage.list(LEDGER_STORAGE_PREFIX);
       if (isStale && isStale()) return; // 品牌已經切換了,這次請求過期,不要再往下做白工
@@ -4901,7 +4901,7 @@ function MetaAdsLedger() {
     };
   }
 
-  // ---------- 投放中廣告成效分類  // ---------- 投放中廣告成效分類(成效好 / 成效正常 / 成效不好 / 學習中) ----------
+  // ---------- 投放中廣告成效分類(成效好 / 成效正常 / 成效不好 / 學習中) ----------
   const LEARNING_MIN_CONVERSIONS = 10; // 轉單數不足,還看不出真實成效,先歸類為「學習中」
   const PERF_LABELS = { good: "成效好", normal: "成效正常", poor: "成效不好", learning: "學習中" };
   const PERF_COLORS = { good: "var(--green)", normal: "var(--blue)", poor: "var(--red)", learning: "var(--amber)" };
@@ -5903,7 +5903,7 @@ function MonthlyReportSection({ storageKey, ads, currencyCode, roasTarget, perio
         try { await fetchShoplineForMonth(monthKey); } catch {}
         await new Promise((r) => setTimeout(r, 1500));
       }
-    } catch { shoplineOk = false; }    } catch { shoplineOk = false; }
+    } catch { shoplineOk = false; }
 
     setRefreshAllStatus("整理中… 每日收益表(Google 試算表)");
     let ledgerOk = true;
@@ -6103,7 +6103,7 @@ function MonthlyReportSection({ storageKey, ads, currencyCode, roasTarget, perio
   }, [sponsorMonthlyStats]);
   const sponsorMonthsWithData = sponsorMonthlyStats.filter((m) => m.ads.length > 0);
 
-  const sortedVisibleAds = useMemo(  const sortedVisibleAds = useMemo(() => sortAdsByMode(visibleAds, adSortMode), [visibleAds, adSortMode]);
+  const sortedVisibleAds = useMemo(() => sortAdsByMode(visibleAds, adSortMode), [visibleAds, adSortMode]);
 
   // 折價券查詢:依目前選中/搜尋的折價券代碼,從查詢結果的原始訂單裡篩出用過這組代碼的所有訂單(不分大小寫比對)。
   const couponFocusOrders = useMemo(() => {
