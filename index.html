@@ -3863,8 +3863,7 @@ function MetaAdsLedger() {
   const [months, setMonths] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
-  const [focusMonth, setFocusMonth] = useState(null);
+    const [focusMonth, setFocusMonth] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [showPrintSelector, setShowPrintSelector] = useState(false);
@@ -3894,8 +3893,7 @@ function MetaAdsLedger() {
   // 廣告怎麼調頁面使用月報或週報資料
   const [productNames, setProductNames] = useState({}); // { [brandId]: { [code]: name } } 每個品牌、每個代號各自的中文名稱,顯示成「代號(名稱)」——
   // 沒辦法從行銷活動名稱自動抓出乾淨的產品名稱(命名不夠固定),所以讓使用者自己設定,類似 roasTargets 那樣。
-      const [weekInfo, setWeekInfo] = useState(getLastWeekRange());
-    const [viewMode, setViewMode] = useState("month");
+          const [viewMode, setViewMode] = useState("month");
   const [weeksData, setWeeksData] = useState({});
   const [focusWeek, setFocusWeek] = useState(null);
   // 診斷用:error boundary 在這個元件外層,沒辦法直接讀到這裡的 state,錯誤發生時只能靠這個
@@ -3910,16 +3908,9 @@ function MetaAdsLedger() {
       focusWeek,
     };
   }, [viewMode, activeBrandId, brands, focusWeek]);
-    const [apiMonth, setApiMonth] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  });
-    const [apiError, setApiError] = useState(null);
-  const [apiNotice, setApiNotice] = useState(null);
-  const [rememberToken, setRememberToken] = useState(false);
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
-  const [autoSyncStatus, setAutoSyncStatus] = useState(null);
-  const [refreshAllStatus, setRefreshAllStatus] = useState(null); // 「刷新全部」按鈕的進度文字
+        const [apiError, setApiError] = useState(null);
+    const [rememberToken, setRememberToken] = useState(false);
+      // 「刷新全部」按鈕的進度文字
   const autoSyncRanRef = useRef(false);
 
   // ---------- 後台每日收益表(帳本)/ 每日報表 / 團隊密碼:state ----------
@@ -3930,12 +3921,6 @@ function MetaAdsLedger() {
       const [cloudStatus, setCloudStatus] = useState(HAS_SHARED_STORAGE ? "artifact" : "unknown");
   const [credentialName, setCredentialName] = useState("");
   const [showTeamKeyModal, setShowTeamKeyModal] = useState(false);
-  // showApiPanel/showLedgerModal:對應的按鈕、彈窗畫面都拿掉了(這兩個是會外流權杖/試算表的舊功能),
-  // 但底下還有幾支舊函式(importLedgerFile、syncFromGoogleSheet等)內部呼叫這兩個setter——
-  // 這些函式現在沒有任何按鈕會觸發到,是真正的孤兒程式碼,之後應該整支拿掉,
-  // 但這裡先保留state宣告本身,避免那幾支孤兒函式(萬一被別處呼叫到)直接噴出「未定義」的錯誤。
-  const [showApiPanel, setShowApiPanel] = useState(false);
-  const [showLedgerModal, setShowLedgerModal] = useState(false);
   const [teamKeyInput, setTeamKeyInput] = useState(getTeamKey());
 
   // ---------- Shopline 對照:state ----------
@@ -4036,7 +4021,7 @@ function MetaAdsLedger() {
 
       // Meta 自動同步已由中央 GitHub Actions 排程接管。
       // H&J 前台不再於開頁時呼叫 Meta Worker，避免跟 7 帳號中央同步重複消耗 API quota。
-      setAutoSyncEnabled(false);
+
       if (autoSyncRes && autoSyncRes.value === "1") {
         storage.set("meta-api-autosync", "0").catch(() => {});
       }
@@ -4049,7 +4034,7 @@ function MetaAdsLedger() {
     return () => { cancelled = true; };
   }, [activeBrandId]);
   useEffect(() => {
-    setWeekInfo(getLastWeekRange());
+
     let cancelled = false;
     loadAllWeeks(activeBrandId, () => cancelled);
     return () => { cancelled = true; };
@@ -6171,12 +6156,9 @@ function MetaAdsLedger() {
         </div>
       )}
 
-      {notice && <div className="mal-notice">✓ {notice}</div>}
-      {apiNotice && <div className="mal-notice">✓ {apiNotice}</div>}
       {metaUpdateNotice && <div className="mal-notice">✓ {metaUpdateNotice}</div>}
       {shoplineNotice && <div className="mal-notice">✓ {shoplineNotice}</div>}
-      {autoSyncStatus && <div className="mal-notice mal-notice-syncing">{autoSyncStatus}</div>}
-      {refreshAllStatus && <div className="mal-notice mal-notice-syncing">{refreshAllStatus}</div>}
+
       {error && <div className="mal-error">⚠ {error}</div>}
       {apiError && <div className="mal-error">⚠ {apiError}</div>}
       {metaUpdateError && <div className="mal-error">⚠ {metaUpdateError}</div>}
