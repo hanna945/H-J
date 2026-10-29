@@ -1795,12 +1795,6 @@ function monthDateRange(monthKey) {
 }
 // 週的 key 本身就是那一週的起始日(例如 "2026-06-29"),固定跨 7 天,加 6 天就是週末最後一天。
 // 用 UTC 運算來加減天數,避免瀏覽器時區造成日期字串位移。
-function addDaysISO(iso, days) {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
-}
 function fmtInt(n) { return Math.round(n).toLocaleString("zh-TW"); }
 function fmtMoney(n, currency) {
   try {
@@ -5332,59 +5326,7 @@ function MetaAdsLedger() {
   async 
   // 自動回溯抓取過去 N 週(週一~週日),依序一週一週抓、中間間隔 4 秒避免觸發 Meta 頻率限制。
   // 每一週都是獨立呼叫 fetchInsightsForRange,所以就算某一週失敗,也不會影響其他週的結果。
-  async function fetchRecentWeeksFromApi(weeksCount) {
-    if (!apiToken.trim() || !apiAccountId.trim()) {
-      setApiError("請填入存取權杖跟廣告帳號 ID。");
-      return;
-    }
-    setApiError(null);
-    setApiNotice(null);
-    setWeekLoading(true);
-    setShowApiPanel(false);
-    try {
-      const cleanId = apiAccountId.trim().replace(/^act_/, "");
-      const brandIdToUse = await ensureBrandRegistered(cleanId);
-      const tzOffset = await fetchAccountUtcOffset(apiToken.trim(), cleanId);
-
-      const progress = [];
-      for (let w = 1; w <= weeksCount; w++) {
-        const info = getLastWeekRange(tzOffset, w);
-        progress.push({ id: "w" + w, name: `${info.since} ~ ${info.until}`, status: "pending", message: "" });
-      }
-      setBatchProgress(progress);
-
-      let lastInfo = null, successCount = 0, errorCount = 0;
-      for (let w = 1; w <= weeksCount; w++) {
-        setBatchProgress((prev) => prev.map((p, idx) => (idx === w - 1 ? { ...p, status: "running" } : p)));
-        try {
-          const info = getLastWeekRange(tzOffset, w);
-          const record = await fetchInsightsForRange(apiToken.trim(), cleanId, info.since, info.until, true);
-          record.source = "manual";
-          await storage.set(weekKeyFor(brandIdToUse, info.weekStart), JSON.stringify(record));
-          lastInfo = info;
-          successCount++;
-          setBatchProgress((prev) =>
-            prev.map((p, idx) => (idx === w - 1 ? { ...p, status: record.ads.length ? "done" : "empty", message: `${record.ads.length} 支廣告` } : p))
-          );
-        } catch (e) {
-          errorCount++;
-          setBatchProgress((prev) => prev.map((p, idx) => (idx === w - 1 ? { ...p, status: "error", message: e.message } : p)));
-        }
-        if (w < weeksCount) await new Promise((r) => setTimeout(r, 4000));
-      }
-
-      setActiveBrandId(brandIdToUse);
-      if (lastInfo) setWeekInfo(lastInfo);
-      await loadAllWeeks(brandIdToUse);
-      setViewMode("week");
-      setApiNotice(`已抓取過去 ${weeksCount} 週的資料:成功 ${successCount} 週${errorCount > 0 ? `,失敗 ${errorCount} 週(可以之後單獨用「上週報表」模式補抓)` : ""}。`);
-    } catch (e) {
-      setApiError("抓取失敗:" + e.message + apiErrorHint(e));
-    } finally {
-      setWeekLoading(false);
-    }
-  }
-
+  async 
   
   // ---------- 投放中廣告成效分類(成效好 / 成效正常 / 成效不好 / 學習中) ----------
   const LEARNING_MIN_CONVERSIONS = 10; // 轉單數不足,還看不出真實成效,先歸類為「學習中」
@@ -6213,10 +6155,7 @@ function MetaAdsLedger() {
   const AUTO_SYNC_DATE_KEY = "meta-auto-sync-last-date";
   async 
   // 手動觸發同步(例如面板裡的「立即同步」按鈕)
-  function runAutoSync() {
-    return runAutoSyncWith(brands.length ? brands : HARDCODED_BRANDS);
-  }
-
+  
   // 直接呼叫 /api/sheets/sync(不是 /api/sheets/auto),指定明確的 accountId——
   // 跟登入自動觸發的每日同步用同一支後端 API,但這支沒有「一天一次」的限制,手動按永遠會真的去抓一次最新的。
   // sheetId 留空,後端會自動沿用這個品牌上次記住的試算表 ID,不用重新貼一次。
@@ -6488,15 +6427,7 @@ function MetaAdsLedger() {
   const focusWeekData = focusWeek ? weeksData[focusWeek] : null;
   const focusWeekIdx = sortedWeekKeys.indexOf(focusWeek);
   const prevWeekData = focusWeekIdx > 0 ? weeksData[sortedWeekKeys[focusWeekIdx - 1]] : null;
-  function weekLabel(weekStart) {
-    if (!weekStart) return "";
-    const [y, m, d] = weekStart.split("-").map(Number);
-    const start = new Date(y, m - 1, d);
-    const end = new Date(y, m - 1, d + 6);
-    const fmt2 = (dt) => `${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
-    return `${fmt2(start)}~${fmt2(end)}`;
-  }
-
+  
   const sortedVisibleAds = useMemo(() => sortAdsByMode(visibleAds, adSortMode), [visibleAds, adSortMode]);
 
   // 折價券查詢:依目前選中/搜尋的折價券代碼,從查詢結果的原始訂單裡篩出用過這組代碼的所有訂單(不分大小寫比對)。
