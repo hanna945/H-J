@@ -3914,7 +3914,7 @@ function MetaAdsLedger() {
   // 公開頁只讀取已同步進共用資料庫的 Shopline 報表，不持有 Worker 網址或驗證密鑰。
   const DEFAULT_SHOPLINE_WORKER_URL = "";
   const SHOPLINE_PROXY_SECRET = "";
-  const [shoplineWorkerUrl, setShoplineWorkerUrl] = useState("");
+  const shoplineWorkerUrl = "";
     const [shoplineWeeksData, setShoplineWeeksData] = useState({}); // { [weekStart]: record }
   const [shoplineMonthsData, setShoplineMonthsData] = useState({}); // { [monthKey]: record }
   const [shoplineLoading, setShoplineLoading] = useState(false);
