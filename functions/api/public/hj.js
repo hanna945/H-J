@@ -30,10 +30,12 @@ const EXACT_KEYS = new Set([
 
 const BRAND_PREFIXES = [
   "metaads-month:",
+  "metaads-week:",
   "metaads-ledger:",
   "adperf-ai-month:",
+  "adperf-ai-week:",
 ];
-const SHOPLINE_PREFIXES = ["shopline-month:"];
+const SHOPLINE_PREFIXES = ["shopline-month:", "shopline-week:"];
 const LIST_PREFIXES = new Set([...BRAND_PREFIXES, ...SHOPLINE_PREFIXES]);
 
 function corsHeaders() {
@@ -156,7 +158,7 @@ async function publicValueForKey(env, key) {
   const raw = await readRawJson(env, key);
   if (raw == null) return null;
   if (prefix === "metaads-ledger:") return sanitizeLedger(raw, key);
-  if (prefix === "shopline-month:") return sanitizeShopline(raw);
+  if (SHOPLINE_PREFIXES.includes(prefix)) return sanitizeShopline(raw);
   return raw;
 }
 
@@ -191,6 +193,36 @@ export async function onRequestGet({ request, env, waitUntil }) {
 
     if (op === "health") {
       return jsonResponse({ ok: true, mode: "READ_ONLY", brands: BRANDS.map((b) => b.name) });
+    }
+
+    if (op === "feed") {
+      const values = {};
+      const keysByPrefix = {};
+
+      values["meta-api-brands"] = BRANDS;
+      for (const key of EXACT_KEYS) {
+        if (key === "meta-api-brands") continue;
+        const value = await publicValueForKey(env, key);
+        if (value !== undefined && value !== null) values[key] = value;
+      }
+
+      for (const prefix of LIST_PREFIXES) {
+        const keys = await listPublicKeys(env, prefix);
+        keysByPrefix[prefix] = keys;
+        const entries = await Promise.all(keys.map(async (key) => [key, await publicValueForKey(env, key)]));
+        for (const [key, value] of entries) {
+          if (value !== undefined && value !== null) values[key] = value;
+        }
+      }
+
+      return jsonResponse({
+        ok: true,
+        mode: "READ_ONLY_FEED",
+        brands: BRANDS,
+        values,
+        keysByPrefix,
+        generatedAt: new Date().toISOString(),
+      });
     }
 
     if (op === "list") {
