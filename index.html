@@ -667,8 +667,19 @@ function getTeamKey() { return ""; }
 function setTeamKey() {}
 function teamKeyHeaders() { return {}; }
 
-async function publicKvRequest(params) {
+const PUBLIC_KV_CACHE_TTL_MS = 30 * 1000;
+const publicKvCache = new Map();
+function clearPublicKvCache() {
+  publicKvCache.clear();
+}
+async function publicKvRequest(params, force = false) {
   const qs = new URLSearchParams(params);
+  const cacheKey = qs.toString();
+  const cached = publicKvCache.get(cacheKey);
+  if (!force && cached && (Date.now() - cached.at) < PUBLIC_KV_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
   const res = await fetch(`${PUBLIC_HJ_KV_BASE}?${qs.toString()}`, { cache: "no-store" });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -676,12 +687,14 @@ async function publicKvRequest(params) {
     err.status = res.status;
     throw err;
   }
+  publicKvCache.set(cacheKey, { at: Date.now(), value: json });
   return json;
 }
 
-async function probeCloud() {
+async function probeCloud(force = false) {
+  if (!force && cloudStatusCache !== "unknown") return cloudStatusCache;
   try {
-    await publicKvRequest({ op: "health" });
+    await publicKvRequest({ op: "health" }, force);
     cloudStatusCache = "connected";
   } catch {
     cloudStatusCache = "unavailable";
@@ -3930,7 +3943,6 @@ function MetaAdsLedger() {
       setCloudStatus(status);
       if (status === "connected") {
         setCredentialName(getCredentialName());
-        triggerAutoAccountSync();
         refreshBrandsAfterAuth();
       }
     });
@@ -3965,7 +3977,6 @@ function MetaAdsLedger() {
     setCloudStatus(status);
     if (status === "connected") {
       setCredentialName(getCredentialName());
-      triggerAutoAccountSync();
       refreshBrandsAfterAuth();
       setShowTeamKeyModal(false);
     }
@@ -4033,6 +4044,7 @@ function MetaAdsLedger() {
         throw new Error(data.message || data.error || `HTTP ${res.status}`);
       }
 
+      clearPublicKvCache();
       const refreshed = await loadShoplineSharedData();
       const updatedMonths = (data.updated || []).filter((x) => x.type === "month").length;
       const updatedWeeks = (data.updated || []).filter((x) => x.type === "week").length;
