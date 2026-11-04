@@ -120,6 +120,29 @@ export function parseLedgerSheet(matrix, year) {
   }
   const days = [];
   let totalRow = null;
+
+  // 月底「總結」後常會再列真正要看的預估淨利（已扣業配、代言、稅或營業分攤）。
+  // 找到「預估淨利」時，以該列在全店區塊內最右側的數值覆蓋 monthTotal.overall.netProfit。
+  // H&J 同列同時有「原」與「改」兩個數字，取最右側才能命中「改」後淨利。
+  const findProjectedNetProfit = (row) => {
+    const limit = Math.min(row.length, firstBlockCol);
+    let labelIndex = -1;
+    for (let k = 0; k < limit; k++) {
+      const label = (row[k] == null ? "" : String(row[k])).replace(/\s+/g, " ").trim();
+      if (label.includes("預估淨利")) { labelIndex = k; break; }
+    }
+    if (labelIndex < 0) return null;
+    let value = null;
+    for (let k = labelIndex + 1; k < limit; k++) {
+      const raw = row[k];
+      const text = raw == null ? "" : String(raw).replace(/\s+/g, " ").trim();
+      if (!text || text.includes("%")) continue;
+      const n = typeof raw === "number" ? raw : Number(text.replace(/,/g, ""));
+      if (Number.isFinite(n)) value = n;
+    }
+    return value;
+  };
+
   for (let r = 2; r < matrix.length; r++) {
     const row = matrix[r] || [];
     const dateCell = row[0];
@@ -156,7 +179,13 @@ export function parseLedgerSheet(matrix, year) {
         };
       });
       totalRow = { overall, byCode };
-      break;
+      continue;
+    } else if (totalRow) {
+      const projectedNetProfit = findProjectedNetProfit(row);
+      if (projectedNetProfit !== null) {
+        totalRow.overall.netProfit = projectedNetProfit;
+        totalRow.overall.netProfitSource = "預估淨利";
+      }
     }
   }
   if (!days.length) return null;
